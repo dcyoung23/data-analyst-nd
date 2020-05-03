@@ -1,10 +1,10 @@
 # Description
  Repository to house all projects and supporting files related to my Data Analyst Nanodegree - Udacity course.
 
- # Table of Contents
- * [Intro to Data Science](data-science-intro)
+# Table of Contents
+* [Intro to Data Science](data-science-intro)
     * [Analyzing the NYC Subway Dataset](data-science-intro/project)
- * [Data Analysis with R](data-analysis)
+* [Data Analysis with R](data-analysis)
     * [Prosper Loan Data Exploration](data-analysis/project)
 * [Data Wrangling with MongoDB](data-wrangling)
     * [Data Wrangle OpenStreetMap Data](data-wrangling/project)
