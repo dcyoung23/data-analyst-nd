@@ -1,0 +1,48 @@
+DecisionTreeClassifier:
+features_list = ['poi',
+                 #'bonus',
+                 'cash_received',
+                 #'deferred_income',
+                 #'exercised_stock_options',
+                 #'expenses',
+                 #'loan_advances',
+                 #'long_term_incentive',
+                 'poi_messages_pctg',
+                 'restricted_stock',
+                 #'salary',
+                 #'shared_receipt_with_poi',
+                 #'total_payments',
+                 #'total_stock_value'
+                 ]
+
+clf = DecisionTreeClassifier(criterion = 'gini',
+                             max_depth = 5,
+                             max_features = None,
+                             min_samples_leaf = 2,
+                             min_samples_split = 2,
+                             splitter = 'best',
+                             random_state = random_state)
+
+KNeighborsClassifier:
+features_list = ['poi',
+                 #'bonus',
+                 'cash_received',
+                 #'deferred_income',
+                 #'exercised_stock_options',
+                 #'expenses',
+                 #'loan_advances',
+                 #'long_term_incentive',
+                 'poi_messages_pctg',
+                 #'restricted_stock',
+                 #'salary',
+                 #'shared_receipt_with_poi',
+                 'total_payments',
+                 'total_stock_value'
+                 ]
+
+clf = KNeighborsClassifier(algorithm = 'auto',
+                           leaf_size = 30,
+                           metric = 'minkowski',
+                           n_neighbors = 5,
+                           p = 2,
+                           weights = 'uniform')

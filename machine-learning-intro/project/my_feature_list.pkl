@@ -1,0 +1,14 @@
+(lp0
+S'poi'
+p1
+aS'cash_received'
+p2
+aS'poi_messages_pctg'
+p3
+aS'shared_receipt_with_poi'
+p4
+aS'total_payments'
+p5
+aS'total_stock_value'
+p6
+a.

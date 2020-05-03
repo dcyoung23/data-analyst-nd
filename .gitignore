@@ -10,13 +10,16 @@
 
 # Byte-compiled / optimized / DLL files
 __pycache__
+**.pyc
 
 # Misc project files/folders to exclude
 **/archive
 **/misc
 data-visualization/project/files
-data-visualization/project/misc
+**/maildir
+**/emails_by_address
 **.zip
+**.tgz
 **.doc*
 **phx.json
 **phx.osm
