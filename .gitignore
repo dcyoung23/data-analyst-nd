@@ -15,5 +15,6 @@ __pycache__
 **/archive
 **/misc
 data-visualization/project/files
+data-visualization/project/misc
 **.zip
 **.doc*

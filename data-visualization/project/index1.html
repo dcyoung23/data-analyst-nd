@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+
+<!-- Date interaction based on https://bost.ocks.org/mike/nations/ -->
+<!-- Tooltip based on http://bl.ocks.org/mmattozzi/7018021 -->
+
+<script type="text/javascript" script src="http://d3js.org/d3.v3.min.js"></script>
+<style>
+#chart {
+height: 500px;
+}
+
+h3 {
+text-align: center;
+}
+
+aside {
+text-align: right;
+margin-right: 150px;
+}
+
+text {
+  font: 10px sans-serif;
+  font-weight: bold;
+}
+
+.dot {
+  stroke: #000;
+}
+
+.axis path, .axis line {
+  fill: none;
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
+
+.label {
+  fill: #777;
+}
+
+.day.label {
+  font: 500 98px "Helvetica Neue";
+  fill: #ddd;
+}
+
+.day.label.active {
+  fill: #aaa;
+}
+
+.overlay {
+  fill: none;
+  pointer-events: all;
+  cursor: ew-resize;
+}
+
+</style>
+</head>
+
+<h3>Daily Fantasy Basketball Optimal Lineup</br>2015/2016 Season</h3>
+
+<p id="chart"></p>
+
+<aside><strong><em>Mouseover the date to stop the transition and view a specific day.</strong></em></aside>
+
+<p> 
+Daily Fantasy Sports (DFS) has been in the news a lot lately surrounding the debate that it is sports gambling vs. a game of skill.  DFS contests entail building a lineup based on a set number of players per position and within a salary cap.  Salaries are set by the site operator and typically correlates to historical performance.  Points are based on the players game performance for specific statistical categories.  The optimal lineup for each day is the combination of players that scores the highest total points.</br></br>
+
+There is a tremendous amount of data that can be explored to identify trends in player performance to gain a competitive advantage in DFS contests.  The DFS industry has many online tools and one of my favorites is <a href="http://www.fantasylabs.com/" target="_blank">Fantasy Labs</a>.  One of the fundamental statistics promoted on Fantasy Labs is Plus/Minus which is defined as points minus salary based points expectation. In essence this statistic measures true value the player adds to your lineup.  This visualization attempts to explain how important projecting value is when attempting to construct the optimal lineup.
+</p>
+
+<p class="attribution">Source Data: <a href="http://rotoguru1.com/cgi-bin/hyday.pl?game=fd" target="_blank">RotoGuru FanDuel Basketball Daily FDP</a>
+
+<script type="text/javascript">
+
+// Set variables for margins, width and height
+var margin = {top: 20, right: 20, bottom: 20, left: 100},
+    width = 960 - margin.right,
+    height = 500 - margin.top - margin.bottom;
+
+// Set start and end numeric days.  There are not basketball games on every day
+var start = 1, end = 106
+
+// Create object to hold mapping from numeric day to date
+mapDate = {}
+
+// Variables to parse and format date
+var parseDate = d3.time.format("%Y-%m-%d");
+var formatDate = d3.time.format("%b-%d");
+
+// Consume data from csv file
+d3.csv("final_data.csv", function(data) {
+
+	// Update char fields to numeric and parse/format dates
+	data.forEach(function(d) {
+		d.Salary = +d.Salary;
+    	d.Points = +d.Points;
+    	d.Value = +d.Value;
+    	mapDate[d.SeasonDay] = formatDate(parseDate.parse(d.Date));
+    	d.Date = parseDate.parse(d.Date);
+  		});
+
+	// Variables for x data field, scale and axis setup
+	var xValue = function(d) { return d.Points;},
+		xScale = d3.scale.linear()
+		.domain([d3.min(data, xValue)-1, d3.max(data, xValue)+1])
+		.range([0, width]),
+		xMap = function(d) { return xScale(xValue(d));},
+		xAxis = d3.svg.axis().scale(xScale).orient("bottom");
+
+	// Variables for y data field, scale and axis setup
+	var yValue = function(d) { return d.Value;},
+		yScale = d3.scale.linear()
+		.domain([d3.min(data, yValue)-1, d3.max(data, yValue)+1])
+		.range([height, 0]),
+		yMap = function(d) { return yScale(yValue(d));},
+		yAxis = d3.svg.axis().scale(yScale).orient("left");
+
+	// Variables for radius data field, scale and axis setup
+	var rValue = function(d) { return d.Salary;},
+		rScale = d3.scale.sqrt()
+		.domain([d3.min(data, rValue)-1, d3.max(data, rValue)+1])
+		.range([5, 25]),
+		rMap = function(d) { return rScale(rValue(d));};
+
+	// Variables for Optimal colors so can be referenced dynamically
+	var optimalYes = "rgb(255, 153, 51)",
+		optimalNo = "rgb(53, 135, 212)";
+
+	// Variables for Optimal opacity so can be referenced dynamically
+	var opacityYes = 1,
+		opacityNo = .8;
+
+	// Variables for color data field, scale and axis setup
+	var cValue = function(d) { return d.Optimal;},
+		cScale = d3.scale.ordinal()
+		.domain([1, 2])
+		.range([optimalYes, optimalNo]),
+		cMap = function(d) { return cScale(cValue(d));};
+
+	// Variables for opacity data field, scale and axis setup
+	var oScale = d3.scale.ordinal()
+		.domain([1, 2])
+		.range([opacityYes, opacityNo]),
+		oMap = function(d) { return oScale(cValue(d));};
+
+	// Variables for x and y axis with scale
+	var xAxis = d3.svg.axis().orient("bottom").scale(xScale),
+    	yAxis = d3.svg.axis().scale(yScale).orient("left");
+
+    // Tooltip mouseover function so can be referenced dynamically
+    var ttMouseover = function(d) {
+              tooltip.html("Position: " + d.Position + "<br/>" +
+              	"Player: " + d.Player + "<br/>" +
+              	"Salary: $" + d.Salary + "<br/>" +
+              	"Points: " + d.Points + "<br/>" +
+              	"Value: " + d.Value);
+              tooltip.style("visibility", "visible");};
+
+	// Tooltip mousemove function so can be referenced dynamically
+    var ttMousemove = function() {
+          return tooltip.style("top", (d3.event.pageY-10)+"px")
+          .style("left",(d3.event.pageX+10)+"px");};
+
+	// Tooltip mouseout function so can be referenced dynamically
+    var ttMouseout = function() {
+      		return tooltip.style("visibility", "hidden");};
+
+    // Setup chart svg
+    var svg = d3.select("#chart").append("svg")
+    	.attr("width", width + margin.left + margin.right)
+    	.attr("height", height + margin.top + margin.bottom)
+  		.append("g")
+    	.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+   	// x axis
+	svg.append("g")
+    	.attr("class", "x axis")
+    	.attr("transform", "translate(0," + height + ")")
+    	.call(xAxis);
+
+    // y axis
+	svg.append("g")
+    	.attr("class", "y axis")
+    	.call(yAxis);
+
+    // x axis label
+	svg.append("text")
+	    .attr("class", "x label")
+	    .attr("text-anchor", "end")
+	    .attr("x", width)
+	    .attr("y", height - 6)
+	    .text("Points");
+
+	// y axis label
+	svg.append("text")
+	    .attr("class", "y label")
+	    .attr("text-anchor", "end")
+	    .attr("y", 6)
+	    .attr("dy", ".75em")
+	    .attr("transform", "rotate(-90)")
+	    .text("Value");
+
+	// Variables for legend setup
+	var xLegend = 40, 
+		yLegend = 10;
+	
+	// Legend text	
+	svg.append("text")
+		.attr("class", "legend label")
+		.attr("x", xLegend - 5)
+		.attr("y", yLegend)
+		.text("Optimal Lineup");
+
+	// Legend circle for Yes
+	svg.append("circle")
+		.attr("cx", xLegend + 20)
+		.attr("cy", yLegend + 20)
+		.attr("r", 10)
+		.style("fill", optimalYes)
+		.style("opacity", opacityYes)
+		.attr("stroke", "#000");
+		
+	// Legend text for Yes circle
+	svg.append("text")
+		.attr("class", "label")
+		.attr("x", xLegend + 35)
+		.attr("y", yLegend + 25)
+		.style("text-anchor", "start")
+		.text(function(d) {return "Yes";
+		});
+
+	// Legend circle for No
+	svg.append("circle")
+		.attr("cx", xLegend + 20)
+		.attr("cy", yLegend + 50)
+		.attr("r", 10)
+		.style("fill", optimalNo)
+		.style("opacity", opacityNo)
+		.attr("stroke", "#000");
+	
+	// Legend text for No circle
+	svg.append("text")
+		.attr("class", "label")
+		.attr("x", xLegend + 35)
+		.attr("y", yLegend + 55)
+		.style("text-anchor", "start")
+		.text(function(d) {return "No";
+		});
+
+	// Tooltip setup
+	var tooltip = d3.select("#chart")
+    	.append("div")
+    	.style("position", "absolute")
+    	.style("z-index", "10")
+    	.style("visibility", "hidden")
+    	.style("color", "white")
+    	.style("padding", "8px")
+    	.style("background-color", "rgba(0, 0, 0, 0.75)")
+    	.style("border-radius", "6px")
+    	.style("font", "12px sans-serif")
+    	.text("tooltip");
+
+    // Starting value for day overlay
+	var label = svg.append("text")
+	    .attr("class", "day label")
+	    .attr("text-anchor", "end")
+	    .attr("y", height - 24)
+	    .attr("x", width)
+	    .text(mapDate[start]);
+
+	// Circles setup
+	svg.append("g")
+    	.attr("class", "dots")
+    	.selectAll(".dot")
+    	.data(filterData(start))
+    	.enter().append("circle")
+      	.attr("class", "dot")
+      	.attr("r", rMap)
+      	.style("fill", cMap)
+        .style("opacity", oMap)
+		.attr("cx", xMap)
+		.attr("cy", yMap)
+		.on("mouseover", ttMouseover)
+		.on("mousemove", ttMousemove)
+      	.on("mouseout", ttMouseout);
+
+    // Overlay box for day
+  	var box = label.node().getBBox();
+
+  	// Overlay setup
+  	var overlay = svg.append("rect")
+        .attr("class", "overlay")
+        .attr("x", box.x)
+        .attr("y", box.y)
+        .attr("width", box.width)
+        .attr("height", box.height)
+        .on("mouseover", enableInteraction);
+
+    // Transition tween by day
+  	svg.transition()
+  		.duration(300000)
+  		.ease("linear")
+      	.tween("day", tweenSeasonDay)
+      	.each("end", enableInteraction);
+
+    // Function to enable interaction
+  	function enableInteraction() {
+    	var dayScale = d3.scale.linear()
+        .range([Math.floor(box.x), Math.floor(box.x + box.width)])
+        .domain([start, end])
+        .clamp(true);
+
+    	svg.transition().duration(0);
+
+	    overlay
+	        .on("mouseover", mouseover)
+	        .on("mouseout", mouseout)
+	        .on("mousemove", mousemove)
+	        .on("touchmove", mousemove);
+
+	    function mouseover() {
+	      label.classed("active", true);
+	    }
+
+	    function mouseout() {
+	      label.classed("active", false);
+	    }
+
+	    function mousemove() {
+	    	mousex = Math.floor(dayScale.invert(d3.mouse(this)[0]));
+	    	displayDay(mousex);
+    	}
+  	}
+
+  	// Interpolate day from start to finish
+  	function tweenSeasonDay() {
+    	var day = d3.interpolateRound(start, end);
+    	return function(t) { displayDay(day(t)); };
+  	}
+
+  	// Function to update data and chart for new day
+  	function displayDay(day) {
+
+  		// Bind new data
+	  	updatedData = filterData(day);
+
+	  	// Update x and y scales
+	  	xScale.domain([d3.min(updatedData, xValue)-1, d3.max(updatedData, xValue)+1]);
+	  	yScale.domain([d3.min(updatedData, yValue)-1, d3.max(updatedData, yValue)+1]);
+
+	  	// Update x axis
+	  	xAxis.scale(xScale);
+	  	svg.select("g.x.axis")
+	  		.call(xAxis);
+
+	  	// Update y axis
+	   	yAxis.scale(yScale);
+	   	svg.select("g.y.axis")
+	  		.call(yAxis);
+
+		// Update the data points for the existing data points
+		var dots = svg.selectAll(".dot")
+	    	.data(updatedData)
+	    	.attr("r", rMap)
+	    	.style("fill", cMap)
+	        .style("opacity", oMap)
+	        .attr("cx", xMap)
+	        .attr("cy", yMap)
+	        .on("mouseover", ttMouseover);
+	    
+	    // Add the circles for the new data points
+	    dots.enter()
+	    	.append("circle")
+	      	.attr("class", "dot")
+	      	.attr("r", rMap)
+	      	.style("fill", cMap)
+	        .style("opacity", oMap)
+	        .attr("cx", xMap)
+	        .attr("cy", yMap)
+	        .on("mouseover", ttMouseover)
+			.on("mousemove", ttMousemove)
+	      	.on("mouseout", ttMouseout);
+	      	
+	    // Remove the circles for the data points not in the updated data
+	  	dots.exit()
+	  		.remove();
+	    
+	    // Update label with new season day but display as the date
+	    label.text(mapDate[day]);
+
+  	}
+
+  	// function to filter date by day
+  	function filterData(day) {
+		return data.filter(function(d) { return d.SeasonDay  == day;}); 
+    };
+
+});
+
+</script>
+</html>

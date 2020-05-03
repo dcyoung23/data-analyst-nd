@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+
+<script type="text/javascript" script src="http://d3js.org/d3.v3.min.js"></script>
+
+<style>
+
+/* Test iFrame for bl.ocks.org */
+#container {
+  position: absolute;
+  width: 960px;
+  height: 500px;
+  /*border: 1px solid #ddd;*/
+}
+
+#bubbleChart {
+  position: absolute;
+  top: 15px;
+  width: 660px;
+  height: 500px;
+  /*border: 1px solid #ddd;*/
+}
+
+.bubble.title {
+  font: 16px serif;
+  font-weight: bold;
+}
+
+#optimalTitle {
+  position: absolute;
+  top: 0px;
+  left: 690px;
+  font: 14px serif;
+  font-weight: bold;
+  text-align: left;
+}
+
+#optimalTable {
+  position: absolute;
+  top: 37px;
+  left: 690px;
+  font: 10px sans-serif;
+  table-layout: fixed;
+  width: 260px;
+  text-align: left;
+  border-top: 1px solid #ddd;
+  border-bottom: 1px solid #ddd;
+  border-collapse: collapse;
+  border: 1px solid #ddd;
+}
+
+th {
+  border-bottom: 1px solid #ddd;
+}
+
+.bar.title {
+  font: 14px serif;
+  font-weight: bold;
+}
+
+#optimalBar {
+  position: absolute;
+  top: 215px;
+  left: 668px;
+  width: 300px;
+  height: 300px;
+  /*border: 1px solid #ddd;*/
+}
+
+.bar.label {
+  font: 11px sans-serif;
+  font-weight: bold;
+  fill: #ffffff;
+}
+
+text {
+  font: 11px sans-serif;
+  font-weight: bold;
+}
+
+.dot {
+  stroke: #000;
+}
+
+.axis path, .axis line {
+  fill: none;
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
+
+.label {
+  fill: #777;
+}
+
+.day.label {
+  font: 500 50px "Helvetica Neue";
+  fill: #ddd;
+}
+
+.day.label.active {
+  fill: #98df8a;
+}
+
+.overlay {
+  fill: none;
+  pointer-events: all;
+}
+
+.overlay.select {
+  cursor: pointer;
+}
+
+.overlay.move {
+  cursor: ew-resize;
+}
+
+</style>
+
+</head>
+
+<body>
+
+  <div id="container"></div>
+  <div id="bubbleChart"></div>
+  <h4 id="optimalTitle">Optimal Lineup Players</h4>
+  <div id="optimalTable"></div>
+  <div id="optimalBar"></div>
+
+</body>
+
+<script type="text/javascript">
+
+// Set start and end numeric days.  There are not basketball games on every day
+var start = 1, end = 106
+
+// Set variables for margins, width and height
+var bubbleMargin = {top: 30, right: 50, bottom: 50, left: 40},
+    bubbleWidth = 660 - bubbleMargin.right,
+    bubbleHeight = 500 - bubbleMargin.top - bubbleMargin.bottom;
+
+// Set variables for margins, width and height
+var barMargin = {top: 30, right: 10, bottom: 50, left: 50},
+    barWidth = 300 - barMargin.left - barMargin.right,
+    barHeight = 300 - barMargin.top - barMargin.bottom;
+
+// Add a 20px buffer for the bl.ocks.org iframe
+d3.select(self.frameElement).style("width", "980px");
+d3.select(self.frameElement).style("height", "520px");
+
+// Consume data from csv file
+d3.csv("final_data.csv", function(data) {
+
+	/* 	TODO: Lets find a way to better build the charts.  D3.csv is asynchronous */
+
+	/* Begin Bubble Chart Creation */
+	// Variables to parse and format date
+	var parseDate = d3.time.format("%Y-%m-%d"),
+		formatDate = d3.time.format("%b-%d");
+
+	// Create object to hold mapping from numeric day to date
+	mapDate = {}
+
+	// Update char fields to numeric and parse/format dates
+	data.forEach(function(d) {
+		d.Salary = d3.format("$,")(d.Salary);
+    	d.Points = +d.Points;
+    	d.Value = +d.Value;
+    	mapDate[d.SeasonDay] = formatDate(parseDate.parse(d.Date));
+    	d.Date = parseDate.parse(d.Date);
+    });
+
+	// Variables for x data field, scale and axis setup
+	var xValue = function(d) { 
+		return d.Points; 
+	},
+		xScale = d3.scale.linear()
+			.domain([d3.min(data, xValue)-1, d3.max(data, xValue)+1])
+			.range([0, bubbleWidth]),
+		xMap = function(d) { 
+			return xScale(xValue(d)); 
+		},
+		xAxis = d3.svg.axis()
+			.scale(xScale)
+			.orient("bottom");
+
+	// Variables for y data field, scale and axis setup
+	var yValue = function(d) { 
+		return d.Value;
+	},
+		yScale = d3.scale.linear()
+			.domain([d3.min(data, yValue)-1, d3.max(data, yValue)+1])
+			.range([bubbleHeight, 0]),
+		yMap = function(d) { 
+			return yScale(yValue(d));
+		},
+		yAxis = d3.svg.axis()
+			.scale(yScale)
+			.orient("left");
+
+	// Variables for Optimal colors so can be referenced dynamically
+	var optimalYes = "#ff7f0e",
+		optimalNo = "#7f7f7f";
+
+	// Variables for Optimal opacity so can be referenced dynamically
+	var opacityYes = 1,
+		opacityNo = .8;
+
+	// Variables for color data field, scale and axis setup
+	var cValue = function(d) { 
+		return d.Optimal;
+	},
+		cScale = d3.scale.ordinal()
+			.domain([1, 2])
+			.range([optimalYes, optimalNo]),
+		cMap = function(d) { 
+			return cScale(cValue(d));
+		};
+
+	// Variables for opacity data field and scale
+	var oScale = d3.scale.ordinal()
+			.domain([1, 2])
+			.range([opacityYes, opacityNo]),
+		oMap = function(d) { 
+			return oScale(cValue(d));
+		};
+
+	// Radius size for player type salary categories
+	var radiusStar = 20,
+		radiusMid = 12,
+		radiusScrub = 5;
+
+	// Variables for radius data field and scale
+	var rValue = function(d) { 
+		return d.PlayerType;
+	},
+		rScale = d3.scale.ordinal()
+			.domain([1, 2, 3])
+			.range([radiusStar, radiusScrub, radiusMid]),
+		rMap = function(d) { 
+			return rScale(rValue(d));
+		};
+
+	// Variables for x and y axis with scale
+	var xAxis = d3.svg.axis()
+		.orient("bottom")
+		.scale(xScale),
+    	yAxis = d3.svg.axis()
+    	.scale(yScale)
+    	.orient("left");
+
+    // Tooltip mouseover function so can be referenced dynamically
+    var ttMouseover = function(d) {
+              tooltip.html("Position: " + d.Position + "<br/>" +
+              	"Player: " + d.Player + "<br/>" +
+              	"Salary: " + d.Salary + "<br/>" +
+              	"Points: " + d.Points + "<br/>" +
+              	"Value: " + d.Value);
+              tooltip.style("visibility", "visible");
+          };
+
+	// Tooltip mousemove function so can be referenced dynamically
+    var ttMousemove = function() { 
+    	return tooltip.style("top", (d3.event.pageY-10)+"px")
+    	.style("left",(d3.event.pageX+10)+"px");
+    };
+
+	// Tooltip mouseout function so can be referenced dynamically
+    var ttMouseout = function() { 
+    	return tooltip.style("visibility", "hidden");
+    };
+
+    // Setup Bubble Chart
+    var bubble = d3.select("#bubbleChart").append("svg")
+    	.attr("width", bubbleWidth + bubbleMargin.left + bubbleMargin.right)
+    	.attr("height", bubbleHeight + bubbleMargin.top + bubbleMargin.bottom)
+  		.append("g")
+    	.attr("transform", "translate(" + bubbleMargin.left + "," + bubbleMargin.top + ")");
+
+   	// Bubble x axis
+	bubble.append("g")
+    	.attr("class", "x axis")
+    	.attr("transform", "translate(0," + bubbleHeight + ")")
+    	.call(xAxis);
+
+    // Bubble y axis
+	bubble.append("g")
+    	.attr("class", "y axis")
+    	.call(yAxis);
+
+    // Bubble x axis label
+	bubble.append("text")
+	    .attr("class", "x label")
+	    .attr("text-anchor", "middle")
+	    .attr("x", bubbleWidth/2)
+	    .attr("y", bubbleHeight + bubbleMargin.bottom - 15)
+	    .text("Points Scored");
+
+	// Bubble y axis label
+	bubble.append("text")
+	    .attr("class", "y label")
+	    .attr("text-anchor", "middle")
+	    .attr("x", 0 - (bubbleHeight/2))
+	    .attr("y", 0 - bubbleMargin.left + 5)
+	    .attr("dy", ".75em")
+	    .attr("transform", "rotate(-90)")
+	    .text("Performance Value");
+
+	/* Create custom circle and salary range legend. Pretty manual stuff here. */
+	// Variables for bubble legend setup
+	var xLegend = 20, 
+		yLegend = 10;
+	
+	// Bubble legend text	
+	bubble.append("text")
+		.attr("class", "legend label")
+		.attr("x", xLegend)
+		.attr("y", yLegend)
+		.text("Optimal Lineup");
+
+	// Bubble legend circle for Yes
+	bubble.append("circle")
+		.attr("cx", xLegend + 25)
+		.attr("cy", yLegend + 20)
+		.attr("r", 10)
+		.style("fill", optimalYes)
+		.style("opacity", opacityYes)
+		.attr("stroke", "#000");
+		
+	// Bubble legend text for Yes circle
+	bubble.append("text")
+		.attr("class", "label")
+		.attr("x", xLegend + 40)
+		.attr("y", yLegend + 25)
+		.style("text-anchor", "start")
+		.text(function(d) { 
+			return "Yes";
+		});
+
+	// Bubble legend circle for No
+	bubble.append("circle")
+		.attr("cx", xLegend + 25)
+		.attr("cy", yLegend + 50)
+		.attr("r", 10)
+		.style("fill", optimalNo)
+		.style("opacity", opacityNo)
+		.attr("stroke", "#000");
+	
+	// Bubble legend text for No circle
+	bubble.append("text")
+		.attr("class", "label")
+		.attr("x", xLegend + 40)
+		.attr("y", yLegend + 55)
+		.style("text-anchor", "start")
+		.text(function(d) { 
+			return "No";
+		});
+	
+	// Bubble legend text for Player Type and size of circle
+	bubble.append("text")
+		.attr("class", "legend label")
+		.attr("x", xLegend + 10)
+		.attr("y", yLegend + 80)
+		.text("Salary");
+
+	// Bubble legend circle for Star
+	bubble.append("circle")
+		.attr("cx", xLegend + 25)
+		.attr("cy", yLegend + 110)
+		.attr("r", radiusStar)
+		.style("fill", "#ffffff")
+		.attr("stroke", "#000");
+
+	// Bubble legend circle text for Star
+	bubble.append("text")
+		.attr("class", "legend label")
+		.attr("x", xLegend + 50)
+		.attr("y", yLegend + 112)
+		.text("$8,500+");
+
+	// Bubble legend circle for Mid
+	bubble.append("circle")
+		.attr("cx", xLegend + 25)
+		.attr("cy", yLegend + 145)
+		.attr("r", radiusMid)
+		.style("fill", "#ffffff")
+		.attr("stroke", "#000");
+
+	// Bubble legend circle text for Mid
+	bubble.append("text")
+		.attr("class", "legend label")
+		.attr("x", xLegend + 50)
+		.attr("y", yLegend + 148)
+		.text("$6,000+");
+
+	// Bubble legend circle for Scrub
+	bubble.append("circle")
+		.attr("cx", xLegend + 25)
+		.attr("cy", yLegend + 167)
+		.attr("r", radiusScrub)
+		.style("fill", "#ffffff")
+		.attr("stroke", "#000");
+
+	// Bubble legend circle text for Mid
+	bubble.append("text")
+		.attr("class", "legend label")
+		.attr("x", xLegend + 50)
+		.attr("y", yLegend + 171)
+		.text("$3,500+");
+
+	// Bubble tooltip setup
+	var tooltip = d3.select("#bubbleChart")
+    	.append("div")
+    	.style("position", "absolute")
+    	.style("z-index", "10")
+    	.style("visibility", "hidden")
+    	.style("color", "white")
+    	.style("padding", "5px")
+    	.style("background-color", "rgba(0, 0, 0, 0.75)")
+    	.style("border-radius", "6px")
+    	.style("font", "10px sans-serif")
+    	.text("tooltip");
+
+	// Bubble circles setup
+	bubble.append("g")
+    	.attr("class", "dots")
+    	.selectAll(".dot")
+    	.data(filterData(start))
+    	.enter().append("circle")
+      	.attr("class", "dot")
+      	.attr("r", rMap)
+      	.style("fill", cMap)
+        .style("opacity", oMap)
+		.attr("cx", xMap)
+		.attr("cy", yMap)
+		.on("mouseover", ttMouseover)
+		.on("mousemove", ttMousemove)
+      	.on("mouseout", ttMouseout);
+
+     // Bubble title
+	bubble.append("text")
+        .attr("x", (bubbleWidth / 2))             
+        .attr("y", 0 - (bubbleMargin.top / 2))
+        .attr("class", "bubble title")
+        .attr("text-anchor", "middle") 
+        .text("Points Scored and Performance Value Relationship");
+
+	/* Setup Day Label on Bubble Chart with transition */
+    // Starting value for day overlay
+	var label = bubble.append("text")
+	    .attr("class", "day label")
+	    .attr("text-anchor", "end")
+	    .attr("x", bubbleWidth)
+	    .attr("y", bubbleHeight - 15)
+	    .text(mapDate[start]);
+
+    // Overlay box for day
+  	var box = label.node().getBBox();
+
+  	// Overlay setup
+  	var overlay = bubble.append("rect")
+        .attr("class", "overlay")
+        .attr("x", box.x)
+        .attr("y", box.y)
+        .attr("width", box.width)
+        .attr("height", box.height)
+        .on("click", enableInteraction)
+        // Since interaction starts on click enforce mouseover/mouseout
+        .on("mouseover", mouseover)
+        .on("mouseout", mouseout);
+
+    // Transition tween by day
+  	bubble.transition()
+  		.duration(300000)
+  		.ease("linear")
+      	.tween("day", tweenSeasonDay)
+      	.each("end", enableInteraction);
+
+    // Interation message
+	var message = bubble.append("text")
+	    .attr("x", bubbleWidth - 220)
+	    .attr("y", bubbleHeight + bubbleMargin.bottom - 15)
+	    .attr("width", box.width)
+        .attr("class", "day message")
+        .attr("text-anchor", "center")
+        .style("font", "10px sans-serif")
+        .style("font-weight", "bold")
+        .text("Click on date and scroll to select a specific date")
+        .style("fill", "#ddd")
+        .transition()
+        .duration(5000)
+        .style("fill", "#98df8a");
+
+    // Set it back to grey
+    message.transition()
+    	.duration(20000)
+    	.style("fill", "#ddd");
+
+
+	/* Begin Table Creation for Optimal Lineup */
+    // Columns for optimal lineup table
+	var columns = ["Position", "Player", "Salary", "Points", "Value"];
+
+	// Optimal table setup
+    var table = d3.select("#optimalTable").append("table"),
+        thead = table.append("thead"),
+        tbody = table.append("tbody");
+
+    // Add column name to table header
+    thead.append("tr").selectAll("th")
+    	.data(columns)
+    	.enter()
+      	.append("th")
+      	.text(function(column) { 
+      		return column;
+      	});
+
+    // Bind start optimal data
+    var rows = tbody.selectAll("tr")
+    	.data(optimalData(start))
+    	.enter()
+      	.append("tr");
+
+    // Add data to cells for tbody
+    var cells = rows.selectAll("td")
+    	.data(function(row) { 
+    		return columns.map(function(column) {
+    			return {column: column, value: row[column]};
+    		});
+    	})
+    	.enter()
+      	.append("td")
+      	.text(function(d) { 
+      		return d.value;
+      	});
+
+
+    /* Begin Bar Chart Creation for Optimal Lineup */
+    // Create array for PlayerType with custom order
+    playerTypePoints = playerTypeData(start);
+
+    // Variables for x data field, scale and axis setup
+	var barXValue = function(d) { 
+		return d.PlayerType;
+	},
+		barXScale = d3.scale.ordinal()
+	    	.rangeRoundBands([0, barWidth], .5),
+	    barXMap = function(d) { 
+	    	return barXScale(barXValue(d));
+	    };
+
+	// Variables for y data field, scale and axis setup
+	var barYValue = function(d) { 
+		return Math.round(d.Points);
+	},
+		barYScale = d3.scale.linear()
+	    	.range([barHeight, 0]),
+	    barYMap = function(d) { 
+	    	return barYScale(barYValue(d));
+	    },
+	    barHeightMap = function(d) { 
+	    	return barHeight - barYScale(barYValue(d));
+	    };
+
+	// Bar colors
+	var colorStar = "#2ca02c",
+		colorMid = "#1f77b4",
+		colorScrub = "#8c564b"; 
+
+	// Bar color scale
+	var barCScale = d3.scale.ordinal()
+		.domain([1, 2, 3])
+		.range([colorStar, colorMid, colorScrub]),
+		barCMap = function(d) { 
+			return barCScale(barXValue(d));
+		};
+
+	// Bar x axis setup
+	var barXAxis = d3.svg.axis()
+	    .scale(barXScale)
+	    .orient("bottom");
+
+	// Bar y axis setup
+	var barYAxis = d3.svg.axis()
+	    .scale(barYScale)
+	    .orient("left")
+
+	// Bar chart svg
+	var bar = d3.select("#optimalBar").append("svg")
+	    .attr("width", barWidth + barMargin.left + barMargin.right)
+	    .attr("height", barHeight + barMargin.top + barMargin.bottom)
+	  	.append("g")
+	    .attr("transform", "translate(" + barMargin.left + "," + barMargin.top + ")");
+
+	// Update bar x scale
+  	barXScale.domain(playerTypePoints.map(barXValue));
+
+  	// Update bar y scale with a buffer so bars don't go to the top
+  	barYScale.domain([0, d3.max(playerTypePoints, barYValue) + 20]);
+
+  	// Create bar x axis
+	bar.append("g")
+	      .attr("class", "x axis")
+	      .attr("transform", "translate(0," + barHeight + ")")
+	      .call(barXAxis);
+
+	// Create bar y axis
+	bar.append("g")
+	    .attr("class", "y axis")
+	    .call(barYAxis);
+	
+	// Bar y axis label
+	bar.append("text")
+		.attr("class", "y label")
+	    .attr("text-anchor", "middle")
+	    .attr("x", 0 - (barHeight/2))
+	    .attr("y", 0 - barMargin.left + 5)
+	    .attr("dy", ".75em")
+	    .attr("transform", "rotate(-90)")
+	    .text("Points Scored");
+
+	// Create bars
+	bar.selectAll(".bar")
+	    .data(playerTypePoints)
+	    .enter().append("rect")
+	    .attr("class", "bars")
+	    .attr("x", barXMap)
+	    .attr("width", barXScale.rangeBand())
+	    .attr("y", barYMap)
+	    .attr("height", barHeightMap)
+	    .style("fill", barCMap);
+
+	// Translation for bar label location
+	barXText = function(d) { 
+		return barXScale(barXValue(d)) + 8;
+	};
+	barYText = function(d) { 
+		return barYScale(barYValue(d)) + 12;
+	};
+
+	// Bar labels
+	bar.selectAll("bars")
+	    .data(playerTypePoints)
+	    .enter().append("text")
+	    .attr("class", "bar label")
+	    .attr("x", barXText)
+	    .attr("y", barYText)
+		.text(barYValue);
+
+	// Bar title
+	bar.append("text")
+        .attr("x", (barWidth / 2))             
+        .attr("y", 0 - (barMargin.top / 2))
+        .attr("class", "bar title")
+        .attr("text-anchor", "middle") 
+        .text("Optimal Lineup Player Types");
+
+
+    // Variable to translate mouseover value to day
+    var dayScale = d3.scale.linear()
+        .range([Math.floor(box.x) + 5, Math.floor(box.x + box.width) - 5])
+        .domain([start, end])
+        .clamp(true);
+
+    // Function for mouseover event listener on day label
+	function mouseover() {
+		label.classed("active", true);
+		overlay.classed("select", true);
+	    }
+
+	// Function for mouseout event listener on day label
+	function mouseout() {
+	    label.classed("active", false);
+		mousemoveactive = false;
+		overlay.classed("move", false);
+	    }
+
+	// Function for click event listener on day label
+	function mouseclick() {
+		if (mousemoveactive == false) {
+			mousemoveactive = true;
+			overlay.classed("move", true);
+		}
+		else {
+			mousemoveactive = false;
+			overlay.classed("move", false);
+			}
+	    }
+
+	// Function for mousemove event listener on day label
+	function mousemove() {
+		if (mousemoveactive == true)
+			{mousex = Math.floor(dayScale.invert(d3.mouse(this)[0]));
+	    	displayDay(mousex)};
+    	}
+
+    // Function to enable interaction
+  	function enableInteraction() {
+
+		mousemoveactive = true;
+  		overlay.classed("move", true);
+
+  		// Turn off transition duration
+    	bubble.transition().duration(0);
+
+    	// Add event listeners for label interactions
+	    overlay
+	        .on("mouseover", mouseover)
+	        .on("mouseout", mouseout)
+	        .on("click", mouseclick)
+	        .on("mousemove", mousemove)
+	        .on("touchmove", mousemove);
+
+  	}
+
+  	// Interpolate day from start to finish
+  	function tweenSeasonDay() {
+    	var day = d3.interpolateRound(start, end);
+    	return function(t) { 
+    		displayDay(day(t)); 
+    	};
+  	}
+
+  	// Function to update data and chart for new day
+  	function displayDay(day) {
+
+  		// Update data
+	  	updatedData = filterData(day);
+
+		/* Update Bubble Chart */
+	  	// Update x and y scales
+	  	xScale.domain([d3.min(updatedData, xValue)-1, d3.max(updatedData, xValue)+1]);
+	  	yScale.domain([d3.min(updatedData, yValue)-1, d3.max(updatedData, yValue)+1]);
+
+	  	// Update x axis
+	  	xAxis.scale(xScale);
+	  	bubble.select("g.x.axis")
+	  		.call(xAxis);
+
+	  	// Update y axis
+	   	yAxis.scale(yScale);
+	   	bubble.select("g.y.axis")
+	  		.call(yAxis);
+
+		// Update the data points for the existing data points
+		var dots = bubble.selectAll(".dot")
+	    	.data(updatedData)
+	    	.attr("r", rMap)
+	    	.style("fill", cMap)
+	        .style("opacity", oMap)
+	        .attr("cx", xMap)
+	        .attr("cy", yMap)
+	        .on("mouseover", ttMouseover);
+	    
+	    // Add the circles for the new data points
+	    dots.enter()
+	    	.append("circle")
+	      	.attr("class", "dot")
+	      	.attr("r", rMap)
+	      	.style("fill", cMap)
+	        .style("opacity", oMap)
+	        .attr("cx", xMap)
+	        .attr("cy", yMap)
+	        .on("mouseover", ttMouseover)
+			.on("mousemove", ttMousemove)
+	      	.on("mouseout", ttMouseout);
+	      	
+	    // Remove the circles for the data points not in the updated data
+	  	dots.exit()
+	  		.remove();
+
+		/* Update Table */
+		tbody.selectAll("tr")
+  			.data(optimalData(day))
+  			.selectAll("td")
+  			.data(function(row) {
+  				return columns.map(function(column) {
+  					return {column: column, value: row[column]};
+    		});
+  		})
+  		.text(function(d) {
+  			return d.value;
+  		});
+
+  		/* Update Bar Chart */
+		updatedPlayerTypePoints = playerTypeData(day);
+
+		// Update y scale
+  		barYScale.domain([0, d3.max(updatedPlayerTypePoints, barYValue) + 20]);
+
+  		// Update Y axis
+		barYAxis.scale(barYScale);
+		bar.select("g.y.axis")
+	  		.call(barYAxis);
+
+	  	// Update bars with new data
+  		bar.selectAll("rect")
+  			.data(updatedPlayerTypePoints)
+	      	.attr("y", barYMap)
+	      	.attr("height", barHeightMap);
+
+	    // Update bar labels
+		bar.selectAll("text.bar.label")
+	    	.data(updatedPlayerTypePoints)
+	    	.attr("y", barYText)
+			.text(barYValue);
+
+	    // Update label with new season day but display as the date
+	    label.text(mapDate[day]);
+
+  	}
+
+  	// Function to filter date by day
+  	function filterData(day) {
+		return data.filter( function(d) { 
+			return d.SeasonDay  == day;
+		}); 
+    };
+
+  	// Function to filter date by day
+  	function optimalData(day) {
+		return data.filter(function(d) { 
+			return d.SeasonDay  == day & d.Optimal == "Yes";
+		}); 
+    };
+
+    // Function to group optimal data into new array
+    function playerTypeData(day) {
+
+    	TypeOrder = {"Star": 1, "Mid-Level": 2, "Scrub": 3};
+
+		var playerTypePoints = d3.nest().key(function(d) { 
+	  			return d.PlayerType; 
+	  		}).rollup(function(v) { 
+	  			return d3.sum(v, function(d) { 
+	  				return d.Points; 
+	  			});
+	  		}).entries(optimalData(day));
+
+	 	playerTypePoints.forEach(function(d) {
+	 		d.PlayerType = d.key;
+	 		d.Points = d.values;
+	 		d.Order = TypeOrder[d.key];
+		});
+
+	 	playerTypePoints.sort(function(a, b) { 
+	 		return a.Order - b.Order;
+	 	});
+
+	 	return playerTypePoints;
+    };
+
+});
+
+</script>
+</html>
