@@ -1,0 +1,1191 @@
+---
+title: "Prosper Loan Data Exploration"
+author: Chris Young
+output: html_document
+---
+
+## Initial Dataset Analysis
+
+```{r Setup, echo = FALSE, message = FALSE, warning = FALSE}
+# Check current working directory
+getwd()
+
+# Set working directory for P4
+setwd('~/Documents/Project P4 - Explore and Summarize Data')
+
+# Load all libraries
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(gridExtra)
+library(lattice)
+library(MASS)
+library(memisc)
+library(plyr)
+library(Hmisc)
+library(corrplot)
+library(aod)
+```
+
+```{r Functions, echo = FALSE}
+# Function for concat Prosper Rating Numeric and Alpha display
+prosper_rating_display = function(ProsperRating..numeric., ProsperRating..Alpha.) {
+  paste(as.character(ProsperRating..numeric.), ProsperRating..Alpha., sep = ' - ')
+}
+
+# Extract legend from plot
+get_legend <- function(myggplot) {
+  tmp <- ggplot_gtable(ggplot_build(myggplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)
+}
+```
+
+Load data:
+```{r Load Prosper Loan Data, cache = TRUE}
+pl <- read.csv('prosperLoanData.csv')
+```
+
+113,937 observations of 81 variables in the dataset.
+
+```{r Review Dataset, echo = FALSE, eval = FALSE}
+# Display all columns
+names(pl)
+
+# Display summary statistics for all columns
+summary(pl)
+
+# View header data for all columns
+head(pl)
+
+# Number of columns
+ncol(pl)
+
+# Number of rows
+nrow(pl)
+```
+
+Isolate specific colums for further data exploration:
+```{r Isolate Columns, echo = FALSE}
+# Create new variable with designated columns
+myCols <- c('Term','LoanStatus','BorrowerRate','EstimatedLoss','EstimatedReturn',
+            'ProsperRating..numeric.','ProsperRating..Alpha.','ProsperScore',
+            'ListingCategory..numeric.', 'BorrowerState','Occupation',
+            'EmploymentStatusDuration', 'IsBorrowerHomeowner', 'CreditScoreRangeLower',
+            'OpenCreditLines', 'OpenRevolvingAccounts','OpenRevolvingMonthlyPayment',
+            'AmountDelinquent','DelinquenciesLast7Years','PublicRecordsLast10Years',
+            'RevolvingCreditBalance','BankcardUtilization',
+            'TradesNeverDelinquent..percentage.','DebtToIncomeRatio',
+            'IncomeRange','StatedMonthlyIncome','LoanOriginalAmount',
+            'LoanOriginationDate','LoanOriginationQuarter','MonthlyLoanPayment',
+            'LP_InterestandFees', 'LP_GrossPrincipalLoss', 'LP_NetPrincipalLoss',
+            'LP_NonPrincipalRecoverypayments')
+
+# Display results of new variable
+myCols
+```
+
+Summary statistics for specified columns:
+```{r Summary Statistics, echo = FALSE}
+# Display summary statistics for specified columns
+summary(pl[myCols])
+```
+
+## Univariate Plots
+
+```{r Histogram Month by Year, echo = FALSE, message = FALSE}
+# Create new LoanOriginationMonth column
+pl$LoanOriginationMonth <- month(pl$LoanOriginationDate)
+# Create new LoanOriginationYear column
+pl$LoanOriginationYear <- year(pl$LoanOriginationDate)
+
+# Histogram of LoanOriginationMonth by LoanOriginationYear
+hist.month_year <- 
+  ggplot(pl, aes(x = LoanOriginationMonth)) +
+  geom_bar(stat = "bin", binwidth = 1, fill = I('#099DD9')) +
+  scale_x_discrete(limits = c(1:12)) +
+  theme(axis.text.x = element_text(size = 6)) +
+  facet_wrap(~LoanOriginationYear, ncol = 5) +
+  xlab("Loan Origination Month") + ylab("Count")
+
+# Display plot
+hist.month_year
+```
+
+Created new variables for loan origination month and loan origination year and a bar graph by month with a facet by year.  The dataset ranges from November 2005 to March 2014.  There is a gap in data between November 2008 to June 2009.  
+
+A google search of "Prosper loan November 2008" and the 1st hit is a [TechCrunch article](http://techcrunch.com/2008/11/26/sec-outlines-its-reasoning-for-shutting-down-p2p-lender-prosper/) regarding the SEC shut down of peer-to-peer lender Prosper that stopped all lending. 
+
+The metadata makes references to several columns only available after July 2009. CreditGrade is applicable for listings pre-2009 and all of the estimated credit yields as well as what appears to be a new prosper rating/scoring system starting in July 2009. This is key information that will be considered in subsequent data exploration and creation of predictive models.
+
+```{r Histogram Year by Term, echo = FALSE, message = FALSE}
+# Summarize key stats by term
+pl.term <- pl %>%
+  group_by(Term) %>%
+  dplyr::summarise(LoanAmtVolume = sum(as.numeric(LoanOriginalAmount)),
+          LoanAmtMean = mean(as.numeric(LoanOriginalAmount)),
+          LoanAmtMedian = median(as.numeric(LoanOriginalAmount)),
+          LoanCnt = n()) %>%
+  arrange(Term)
+
+arrange(pl.term, desc(LoanCnt))
+
+# Histogram for Year by Term
+hist.year_term <- 
+  ggplot(pl, aes(x = factor(LoanOriginationYear), fill = factor(Term/12))) + 
+  geom_bar(stat = "bin", binwidth = 1) +
+  xlab("Loan Origination Year") + ylab("Count") +
+  guides(fill = guide_legend(title = 'Loan Term in Years'))
+
+# Display plot
+hist.year_term
+```
+
+Loan term options are 1, 3 and 5 years.  1 and 5 year loans were not made until 2011.  3 year loans remained the most popular choice.
+
+```{r Histogram Rate, echo = FALSE}
+# Histogram for BorrowerRate
+hist.rate <- 
+  ggplot(pl, aes(x = BorrowerRate)) + 
+  geom_histogram(binwidth = 0.01, fill = I('#099DD9')) +
+  xlab("Borrower Rate") + ylab("Count")
+
+# Display plot
+hist.rate
+```
+
+Data is normally distributed but with a spike in loan volume around .31.  Median of .1840 and Mean of .1928.
+
+```{r Histogram Estimated Return, echo = FALSE}
+# Histogram for EstimatedReturn
+hist.return <- 
+  ggplot(pl, aes(x = EstimatedReturn)) + 
+  geom_histogram(binwidth = 0.005, fill = I('#099DD9')) +
+  scale_x_continuous(limits = c(0, .2)) +
+  xlab("Estimated Return") + ylab("Count")
+
+# Display plot
+hist.return
+```
+
+Data is normally distributed.  Median of .092 and Mean of .096.  Added x limits of 0 and .2 to remove long tail primarily for negative returns to provide a better visualization of the distribution.
+
+```{r Histogram Estimated Loss, echo = FALSE}
+# Histogram for EstimatedLoss
+hist.loss <- 
+  ggplot(pl, aes(x = EstimatedLoss)) + 
+  geom_histogram(binwidth = 0.005, fill = I('#099DD9')) +
+  scale_x_continuous(limits = c(0, .2)) +
+  xlab("Estimated Loss") + ylab("Count")
+
+# Display plot
+hist.loss
+```
+
+Data closely resembles a plateau distribution with multiple peaks and valleys.  Median of .072 and Mean of .080.
+
+```{r Histogram Prosper Rating, echo = FALSE, message = FALSE}
+# Histogram for ProsperRating
+hist.prosperrating <- 
+  ggplot(subset(pl, ProsperRating..numeric. != ""), 
+       aes(x = factor(ProsperRating..numeric.), 
+              fill = prosper_rating_display(ProsperRating..numeric.,
+                              ProsperRating..Alpha.))) +
+  geom_histogram(binwidth = 1) +
+  xlab("Prosper Rating Numeric") + ylab("Count") +
+  guides(fill = guide_legend(title = 'Prosper Rating Display', reverse = TRUE))
+
+# Display plot
+hist.prosperrating
+```
+
+Data is normally distributed.  Median of 4.00 and Mean of 4.072.  The minimum and maximum rating is 1 and 7 respectively.  From worst to best, the alpha scale ranges from HR to AA.
+
+```{r Histogram Prosper Score, echo = FALSE}
+# Histogram for ProsperScore
+hist.prosperscore <- 
+  ggplot(subset(pl, ProsperScore != ""), aes(x = factor(ProsperScore))) + 
+  geom_histogram(binwidth = 1, fill = I('#099DD9')) +
+  xlab("Prosper Score") + ylab("Count")
+
+pl.prosperscore <- subset(pl, ProsperScore != "") %>%
+  group_by(ProsperScore) %>%
+  dplyr::summarise(LoanAmtMean = mean(as.numeric(LoanOriginalAmount)),
+                   LoanAmtMedian = median(as.numeric(LoanOriginalAmount)),
+                   LoanAmtVolume = sum(as.numeric(LoanOriginalAmount)),
+                   LoanCnt = n()) %>%
+  arrange(ProsperScore)
+
+arrange(pl.prosperscore, ProsperScore)
+
+# Display plot
+hist.prosperscore
+```
+
+Data is normally distributed with similar peaks at 4, 6 and 8.  The maximum score is 11 which is inconsistent with the metadata that indicates score ranges from 1 to 10, with 10 being the best.
+
+```{r Histogram Employment Status Duration, echo = FALSE, message = FALSE}
+# Histogram for EmploymentStatusDuration 
+# Create separate plot variables with different binwidths and fills
+hist.esd.p1 <- 
+  ggplot(pl, aes(x = EmploymentStatusDuration)) + 
+  geom_histogram(binwidth = 30, fill = I('#099DD9')) +
+  scale_x_continuous(limits = c(0, 400)) +
+  xlab("Employment Status Duration") + ylab("Count")
+
+hist.esd.p2 <- ggplot(pl, aes(x = log10(EmploymentStatusDuration))) + 
+  geom_histogram(binwidth = .1, fill = I('#33CC33')) +
+  xlab("log 10 Employment Status Duration") + ylab("Count")
+
+hist.esd.p3 <- ggplot(pl, aes(x = sqrt(EmploymentStatusDuration))) + 
+  geom_histogram(binwidth = 1, fill = I('#FF9900')) +
+  xlab("Standard Deviation Employment Status Duration") + ylab("Count")
+
+# Display plot grid
+grid.arrange(hist.esd.p1, hist.esd.p2, hist.esd.p3, ncol = 1)
+```
+
+Data is positively skewed for shorter employment lengths.  Added a log10 and square root transformation arranged in a 1 column grid.  Median of 67.00 and Mean of 96.07.
+
+```{r Histogram Credit Score, echo = FALSE, message = FALSE}
+# Create custom field CreditScoreRangeLower
+pl$CreditScoreRangeLowerCategory <- NA
+pl$CreditScoreRangeLowerCategory = cases (
+    "Excellent" = pl$CreditScoreRangeLower >= 781,
+    "Good" = pl$CreditScoreRangeLower >= 661,
+    "Fair" = pl$CreditScoreRangeLower >= 601,
+    "Poor" = pl$CreditScoreRangeLower >= 501,
+    "Bad" = pl$CreditScoreRangeLower >= 401
+    )
+
+# Histogram for CreditScoreRangeLower
+hist.creditscore <- 
+  ggplot(subset(pl, CreditScoreRangeLower > 0), 
+       aes(x = CreditScoreRangeLower, fill = CreditScoreRangeLowerCategory)) + 
+  geom_histogram(binwidth = 20) +
+  scale_fill_manual(values = c(I('#2B83BA'), I('#ABDDA4'), 
+                               I('#FFFFBF'), I('#FDAE61'), I('#D7191C'))) +
+  xlab("Credit Score Range Lower") + ylab("Count") +
+  guides(fill = guide_legend(title = 'Credit Score Category'))
+
+# Display plot
+hist.creditscore
+```
+
+Data is normally distributed.  Median of 680.0 and Mean of 685.6.  Filtered out records with invalid credit score = 0 to remove left long tail.  Used credit score range lower since rate qualification is typically based on the lower score in multi-credit scoring pricing model.  Added spectral color pallette for Bad to Excellent credit score ranges.
+
+```{r Histogram Loan Amount, echo = FALSE}
+# Histogram for LoanOriginalAmount with bin color based on Y axis counts
+hist.loanamt <- 
+  ggplot(pl, aes(x = LoanOriginalAmount, fill = ..count..)) + 
+  geom_histogram(binwidth = 1000) +
+  scale_x_continuous(breaks = seq(0, 35000, 5000)) +
+  xlab("Loan Original Amount") + ylab("Count") +
+  guides(fill = guide_legend(title = "Loan Count", reverse = TRUE))
+
+# Display plot
+hist.loanamt
+```
+
+Data is positively skewed.  Added tick marks every 5000 since peaks show loan amounts appear to be more common in 5K increments (5K - 25K).  Median of 6500.0 and Mean of 8337.0.
+
+```{r Histogram Payment Amount, echo = FALSE}
+# Histogram for MonthlyLoanPayment
+hist.loanpmt <- 
+  ggplot(pl, aes(x = MonthlyLoanPayment)) + 
+  geom_histogram(binwidth = 25, fill = I('#099DD9')) +
+  scale_x_continuous(limits = c(0, quantile(pl$MonthlyLoanPayment, 0.99))) +
+  xlab("Monthly Loan Payment") + ylab("Count")
+
+# Display plot
+hist.loanpmt
+```
+
+Data is positively skewed.  Added x axis limit to exclude long tail for monthly payments greater than 99% quantile.  Median of 217.7 and Mean of 272.5.
+
+Top 10 loan volume by BorrowerState:
+```{r State Map, echo = FALSE, message = FALSE}
+# Summarize key stats for all states
+pl.state <- subset(pl, BorrowerState != "") %>%
+  group_by(BorrowerState) %>%
+  dplyr::summarise(LoanAmtVolume = sum(as.numeric(LoanOriginalAmount)),
+          LoanAmtMean = mean(as.numeric(LoanOriginalAmount)),
+          LoanAmtMedian = median(as.numeric(LoanOriginalAmount)),
+          LoanCnt = n()) %>%
+  arrange(BorrowerState)
+
+arrange(pl.state, desc(LoanCnt))
+
+# Add state name
+pl.state$StateName <- state.name[match(pl.state$BorrowerState,state.abb)]
+
+# Fix DC name
+pl.state$StateName[pl.state$BorrowerState == "DC"] <- "District of Columbia"
+
+# Create map data for all mainland states
+us <- map_data("state")
+
+# Create map plot - The StateName field is all lower case in map_data
+map.state <- 
+  ggplot() +
+  geom_map(data = us, map = us,
+                    aes(x = long, y = lat, map_id = region),
+                    fill = "#FFFFFF", color = "#FFFFFF", size = 0.15) +
+  geom_map(data = pl.state, map = us,
+                    aes(fill = LoanCnt, map_id = tolower(StateName)),
+                    color = "#FFFFFF", size = 0.15) +
+  scale_fill_continuous(low = I('#DEEBF7'), high = I('#3182BD'), 
+                        guide = 'colorbar', breaks = seq(0, 16000, 4000)) +
+  guides(fill = guide_colorbar(title = "Loan Count")) +
+  theme(panel.border = element_blank()) +
+  theme(panel.background = element_blank()) +
+  theme(axis.ticks = element_blank()) +
+  theme(axis.text = element_blank()) +
+  labs(x = NULL, y = NULL)
+
+# Display plot
+map.state
+```
+
+Added map plot to show dominant CA market.
+
+Loan volume by custom ListingCategoryGroup variable:
+```{r Bar Chart Listing Category, echo = FALSE, message = FALSE}
+# 0 - Not Available, 1 - Debt Consolidation, 2 - Home Improvement, 3 - Business, 
+# 4 - Personal Loan, 5 - Student Use, 6 - Auto, 7- Other, 8 - Baby&Adoption, 
+# 9 - Boat, 10 - Cosmetic Procedure, 11 - Engagement Ring, 12 - Green Loans, 
+# 13 - Household Expenses, 14 - Large Purchases, 15 - Medical/Dental, 
+# 16 - Motorcycle, 17 - RV, 18 - Taxes, 19 - Vacation, 20 - Wedding Loans
+
+# Group similar listing categories together
+attach(pl)
+pl$ListingCategoryGroup[ListingCategory..numeric. == 0] <- "Not Available"
+pl$ListingCategoryGroup[ListingCategory..numeric. == 1] <- "Debt Consolidation"
+pl$ListingCategoryGroup[ListingCategory..numeric. %in% c(2, 12, 13)] <- "Household"
+pl$ListingCategoryGroup[ListingCategory..numeric. == 3] <- "Business Use"
+pl$ListingCategoryGroup[ListingCategory..numeric. %in% c(4, 5, 8, 11, 19, 20)] <- "Personal Use"
+pl$ListingCategoryGroup[ListingCategory..numeric. == 18] <- "Taxes"
+pl$ListingCategoryGroup[ListingCategory..numeric. %in% c(6, 9, 16, 17)] <- "Vehicle"
+pl$ListingCategoryGroup[ListingCategory..numeric. %in% c(10, 15)] <- "Medical"
+pl$ListingCategoryGroup[ListingCategory..numeric. %in% c(7, 14)] <- "Other"
+detach(pl)
+
+# Summarize key stats for all listing category groups
+pl.listing <- pl %>%
+  group_by(ListingCategoryGroup) %>%
+  dplyr::summarise(LoanAmtVolume = sum(as.numeric(LoanOriginalAmount)),
+          LoanAmtMean = mean(as.numeric(LoanOriginalAmount)),
+          LoanAmtMedian = median(as.numeric(LoanOriginalAmount)),
+          LoanCnt = n()) %>%
+  arrange(ListingCategoryGroup)
+
+arrange(pl.listing, desc(LoanCnt))
+
+# Boxplot for ListingCategoryGroup
+bar.listcat <- 
+  ggplot(pl, aes(x = ListingCategoryGroup, y = ..count../sum(..count..))) + 
+  geom_bar(aes(fill = ..count../sum(..count..))) +
+  theme(axis.text.x = element_text(size = 6)) +
+  xlab("Listing Category Group") + ylab("% of Total") +
+  guides(fill = guide_legend(title = "% of Total", reverse = TRUE))
+
+# Display plot
+bar.listcat
+```
+
+Debt consolidation loans are the most common loan type representing more than 50% of the total.
+
+Summary of LoanStatus and new calculated LoanStatusBucket variable:
+```{r Summary Loan Status, echo = FALSE}
+# The current status of the loan: Cancelled,  Chargedoff, Completed, Current, Defaulted, FinalPaymentInProgress, 
+# PastDue. The PastDue status will be accompanied by a delinquency bucket.
+summary(pl$LoanStatus)
+
+# Create LoanStatusBucket field
+pl$LoanStatusBucket <- factor(pl$LoanStatus)
+
+levels(pl$LoanStatusBucket) <- list(
+  Cancelled = c("Cancelled"),
+  Closed = c("Chargedoff", "Completed", "Defaulted"),
+  Open = c("Current", "FinalPaymentInProgress", 
+           "Past Due (1-15 days)", "Past Due (16-30 days)", 
+           "Past Due (31-60 days)","Past Due (61-90 days)",
+           "Past Due (91-120 days)","Past Due (>120 days)")
+)
+
+summary(pl$LoanStatusBucket)
+```
+
+New variable PrincipalLoss flag:
+```{r Create Principal Loss, echo = FALSE}
+# Create principal loss default flag
+pl$PrincipalLoss <- ifelse(pl$LP_NetPrincipalLoss > 0, 1, 0)
+
+table(pl$PrincipalLoss)
+#head(pl[pl$PrincipalLoss == 1,])
+```
+
+The principal Loss variable will be used to identify loans that have defaulted and any principal amount was charged off.
+
+New variable BorHomeowner flag:
+```{r Create Bor Homeowner, echo = FALSE}
+pl$BorHomeowner <- ifelse(pl$IsBorrowerHomeowner == 'True', 1, 0)
+
+table(pl$BorHomeowner)
+#summary(pl$IsBorrowerHomeowner)
+```
+
+Converted True/False text field.
+
+## Univariate Summary
+
+**What is the structure of your dataset?**
+
+There are 113,937 loans in the dataset with 81 total columns.  Based on existing domain knowledge of the lending industry, I immediately isolated specific columns for further analysis.  However, as I conducted the single variable analysis I went back and made revisions to my column list.  For example, once I made the determination that the credit rating system changed in July 2009 I added each of the Prosper Rating/Score variables and removed Credit Grade.
+
+Loan origination volume range from November 2005 to March 2014.  There is no data between November 2008 to June 2009 due to the SEC shut down of Prosper.  Loan term options are 1, 3 and 5 years.  Prosper did not make 1 and 5 year loans until 2011 but the 3 year loan remained the most popular choice.
+
+Prosper has an ordered factor variable for credit rating as well as an accompanying numeric variable and custom risk score.
+
+Worst -> Best  
+Prosper rating alpha: HR, E, D, C, B, A, AA  
+Prosper rating numeric: 1 - 7  
+Prosper score: 1 - 11  
+
+All rating/risk score fields are NA pre-2009 so the datset will be filtered accordingly.  Based on the variable definitions the maximum risk score was expected to be 10.
+
+Median rate is 18.4% with spike in volume at 31%.  
+Median estimated return and loss is 9.2% and 7.2% respectively.  
+Median employment duration is 67 months.  
+Median credit score lower is 680.
+Median loan amount is $6500.
+
+CA has the highest volume of loans and Debt Consolidation is the top listing category.
+
+**What is/are the main feature(s) of interest in your dataset?**
+
+The main features of interest in the dataset rate, loan amount and prosper rating  My perspective is from an investor point of view and investigating the relationship of customer profiles and probability of the loan defaulting and loss of principal.
+
+**What other features in the dataset do you think will help support your investigation into your feature(s) of interest?**
+
+The features that will be explored further are:
+
+* Term
+* EstimatedLoss
+* EstimatedReturn
+* EmploymentStatusDuration
+* BorHomeowner
+* CreditScoreRangeLower
+* AmountDelinquent
+* DelinquenciesLast7Years
+* PublicRecordsLast10Years
+* RevolvingCreditBalance
+* OpenCreditLines
+* OpenRevolvingAccounts
+* OpenRevolvingMonthlyPayment
+* BankcardUtilization
+* TradesNeverDelinquent..percentage.
+* DebtToIncomeRatio
+* StatedMonthlyIncome
+* PrincipalLoss
+
+**Did you create any new variables from existing variables in the dataset?**
+
+The dataset includes estimated return and loss rates but these are assigned at the time the loan listing was created.  The dataset does not have average daily balance data to calculate actual rates so net principal loss was used to calculate a principal loss flag.
+
+In addition, new variables were created for loan origination month and year, credit score category (Bad, Poor, Fair, Good, Excellent), listing category group and loan status bucket (Cancelled, Open, Closed).
+
+**Of the features you investigated, were there any unusual distributions? Did you perform any operations on the data to tidy, adjust, or change the form of the data? If so, why did you do this?**
+
+The positive skew of employment status duration was transformed using log 10 and standard deviation.  Due to the gap in data between November 2008 to June 2009 and introduction of the prosper rating and risk score metrics, the dataset will be filtered for loans >= 2009 for analysis on these fields.
+
+Rate has an unusual spike in loan counts at 31% with median values of 18.40% and Mean of 19.28%.  Estimated loss has what closely resembles a plateau distribution with multiple peaks at similar heights.
+
+Prosper rating and prosper score are normally distributed but the prosper score has unusual peaks at 4, 6 and 8.  This will be explored further but will focus on prosper rating in subsequent analysis.
+
+## Bivariate Plots
+
+Correlation matrix 1 for rate, credit rating and key loan fields:
+```{r Correlation Matrix 1, echo = FALSE, message = FALSE, warning = FALSE}
+# Create new variable with designated columns
+myCols1 <- c('BorrowerRate','EstimatedLoss','EstimatedReturn', 
+            'ProsperRating..numeric.','ProsperScore','CreditScoreRangeLower',
+            'Term', 'EmploymentStatusDuration', 'StatedMonthlyIncome',
+            'LoanOriginalAmount', 'BorHomeowner', 'PrincipalLoss')
+
+# Create new dataframe with subset columns 1
+pl.sub1 <- subset(pl[myCols1], pl$LoanOriginationYear >= 2009)
+# Rename columns to abbreviated names for cleaner visualization
+pl.sub1 <- rename(pl.sub1,c('BorrowerRate' = 'BorRate', 'EstimatedLoss' = 'EstLoss',
+                            'EstimatedReturn' = 'EstRet',
+                            'ProsperRating..numeric.' = 'ProspRate',
+                            'ProsperScore' = 'ProspScore',
+                            'EmploymentStatusDuration' = 'EmpDur',
+                            'CreditScoreRangeLower' = 'CreditScore',
+                            'StatedMonthlyIncome' = 'Income',
+                            'LoanOriginalAmount' = 'LoanAmt'))
+
+# Create correlation matrix
+m1 <- cor(pl.sub1, use = "complete")
+m1
+# Plot correlation matrix
+corrplot(m1, method = "circle")
+
+#cor.test(pl$BorrowerRate, pl$EstimatedLoss, method = "pearson", alternative = 'two.sided')
+```
+
+In the top left of the correlation matrix, rate, estimated loss, estimated return, prosper rating, prosper score and credit score all have high correlation and will be explored further.  Loan amount and principal loss are the additional fields of interest.
+
+Correlation matrix 2 for rate, credit rating and key credit reporting fields:
+```{r Correlation Matrix 2, echo = FALSE, message = FALSE, warning = FALSE}
+# Create new variable with designated columns
+myCols2 <- c('BorrowerRate', 'ProsperRating..numeric.','ProsperScore',
+             'CreditScoreRangeLower', 'OpenRevolvingMonthlyPayment', 'RevolvingCreditBalance',
+             'BankcardUtilization', 'DebtToIncomeRatio','AmountDelinquent', 'TotalTrades',
+             'DelinquenciesLast7Years','PublicRecordsLast10Years', 'LoanOriginalAmount',
+             'PrincipalLoss')
+
+# Create new dataframe with subset columns 2
+pl.sub2 <- subset(pl[myCols2], pl$LoanOriginationYear >= 2009)
+# Rename columns to abbreviated names for cleaner visualization
+pl.sub2 <- rename(pl.sub2,c('BorrowerRate' = 'BorRate',
+                            'ProsperRating..numeric.' = 'ProspRate',
+                            'ProsperScore' = 'ProspScore',
+                            'CreditScoreRangeLower' = 'CreditScore',
+                            'OpenRevolvingMonthlyPayment' = 'RevPmt',
+                            'RevolvingCreditBalance' = 'RevBal',
+                            'BankcardUtilization' = 'CardUtil',
+                            'DebtToIncomeRatio' = 'DTI',
+                            'AmountDelinquent' = 'AmtDlq',
+                            'DelinquenciesLast7Years' = 'Dlq7',
+                            'PublicRecordsLast10Years' = 'PublicRecord10',
+                            'LoanOriginalAmount' = 'LoanAmt'))
+
+# Create correlation matrix
+m2 <- cor(pl.sub2, use = "complete")
+m2
+# Plot correlation matrix
+corrplot(m2, method = "circle") #plot matrix
+
+#cor.test(pl$BorrowerRate, pl$EstimatedLoss, method = "pearson", alternative = 'two.sided')
+```
+
+Due to number variables in the dataset, this correlation matrix now explores the various credit reporting fields and relationship with rate, prosper rating, prosper score and credit score.  Card utilization and credit score as well as total trades/revolving balance and revolving payment have a good relationship but no other variables stand out for further exploration.
+
+It was assumed that most of these credit reporting fields would have some factor in the credit score so it is interesting to see that card utilization has the highest correlation of all credit related fields.
+
+```{r Histogram Loan Amount by Term, echo = FALSE, message = FALSE}
+# Change aes to Term in years and update legend
+hist.loanamt_term <- hist.loanamt +
+  aes(fill = factor(Term/12)) +
+  guides(fill = guide_legend(title = 'Loan Term in Years'))
+
+# Display updated plot
+hist.loanamt_term
+```
+
+3 year loans are the most common across all loan amounts.
+
+I will now explore rate and estimated loss, estimated return, prosper rating, credit score, loan amount and income.
+
+```{r Scatterplot Rate and Loss, echo = FALSE, message = FALSE, warning = FALSE}
+# Isolate dataset for loans originated >= 2009
+pl.2009 <- subset(pl, pl$LoanOriginationYear >= 2009)
+
+# Scatterplot for BorrowerRate and Loss
+scatter.rate.loss <- 
+  ggplot(pl.2009, aes(x = BorrowerRate, y = EstimatedLoss)) + 
+  geom_point(alpha = .25, color = I('#099DD9')) +
+  xlab("Borrower Rate") + ylab("Estimated Loss")
+
+# Display plot
+scatter.rate.loss
+```
+
+As rate increases, estimated loss for the loan increases.  At rates at 20% and higher there are vertical bands for higher loss estimates.  This will be explored in the multivariate analysis section to identify the types of loans that represent these higher loss estimates.
+
+```{r Scatterplot Rate and Return, echo = FALSE, message = FALSE, warning = FALSE}
+# Scatterplot for BorrowerRate and Return
+scatter.rate.return <- 
+  ggplot(pl.2009, aes(x = BorrowerRate, y = EstimatedReturn)) + 
+  geom_point(alpha = 0.25, color = I('#099DD9')) +
+  xlab("Borrower Rate") + ylab("Estimated Return")
+
+# Display plot
+scatter.rate.return
+```
+
+As rate increases, estimated return for the loan increases.  At rates at 20% and higher there are vertical bands for lower return estimates.  This is consistent since as the estimated loss increases, estimated return decreases.  This will be explored in the multivariate analysis section to identify the types of loans that represent these lower return estimates.  It is noted some loans have estimated negative returns.
+
+```{r Scatterplot Rating and Rate, echo = FALSE, message = FALSE, warning = FALSE}
+# Scatterplot for ProsperRating and Rate
+scatter.prosperrating.rate <- ggplot(subset(pl.2009, ProsperRating..numeric. != ""), 
+              aes(x = prosper_rating_display(ProsperRating..numeric.,ProsperRating..Alpha.), 
+                  y = BorrowerRate)) + 
+  geom_point(alpha = 0.25, color = I('#099DD9'), position = position_jitter(h = 0)) +
+  xlab("Prosper Rating") + ylab("Borrower Rate")
+
+# Display plot
+scatter.prosperrating.rate
+```
+
+Prosper rating scale is a discrete range from 1 to 7 so you get overplotting on the vertical bands for each rating.  There is a negative linear relationship with higher amount of outliers for lower ratings.  This plot is not very effective due to discrete nature of the rating scale.
+
+```{r Boxplot Rating and Rate, echo = FALSE, message = FALSE, warning = FALSE}
+# Boxplot for ProsperRating and Rate
+box.prosperrating.rate <- 
+  ggplot(subset(pl, ProsperRating..numeric. != ""), 
+       aes(x = prosper_rating_display(ProsperRating..numeric., ProsperRating..Alpha.), 
+           y = BorrowerRate)) + 
+  geom_boxplot(aes(fill = factor(ProsperRating..numeric.))) +
+  stat_summary(fun.y = mean, color = I("#CC3300"), geom = "point", size = 3) +
+  xlab("Prosper Rating") + ylab("Borrower Rate") +
+  guides(fill = FALSE)
+
+# Display plot
+box.prosperrating.rate
+```
+
+The boxplot is a better plot to visualize the data for rating and rate due to the discrete rating scale.
+
+```{r Scatterplot Credit Score and Rate, echo = FALSE, message = FALSE, warning = FALSE}
+# Scatterplot for CreditScoreRangeLower and Rate
+scatter.creditscore.rate <- 
+  ggplot(subset(pl, CreditScoreRangeLower > 0), 
+       aes(x = CreditScoreRangeLower, y = BorrowerRate)) + 
+  geom_point(alpha = 0.25, color = I('#099DD9'), position = position_jitter(h = 0)) +
+  scale_x_continuous(breaks = seq(400, 900, 50)) +
+  xlab("Credit Score") + ylab("Borrower Rate")
+
+# Display plot
+scatter.creditscore.rate
+```
+
+The credit score range lower variable is represented in increments of 20 so you get overplotting on the vertical bands for each score.  Although there is a negative non-linear relationship between credit score and rate, the data really shows that credit score most likely is not the sole factor in the customers rate.
+
+```{r Boxplot Credit Score Cat and Rate, echo = FALSE, message = FALSE, warning = FALSE}
+# Create list for axis order
+creditscore_category = c('Bad','Poor','Fair','Good','Excellent')
+
+# Boxplot for CreditScoreRangeLowerCategory and Rate
+box.creditscorecat.rate <- 
+  ggplot(subset(pl, CreditScoreRangeLowerCategory != ""),
+       aes(x = CreditScoreRangeLowerCategory, y = BorrowerRate)) + 
+  geom_boxplot(aes(fill = CreditScoreRangeLowerCategory)) +
+  scale_fill_manual(values = c(I('#2B83BA'), I('#ABDDA4'), 
+                               I('#FFFFBF'), I('#FDAE61'), I('#D7191C'))) +
+  scale_x_discrete(limits = creditscore_category) +
+  stat_summary(fun.y = mean, geom = "point", size = 3) +
+  xlab("Credit Score Category") + ylab("Borrower Rate") +
+  guides(fill = FALSE)
+
+# Display plot
+box.creditscorecat.rate
+```
+
+Using the custom credit score category field it buckets the credit scores to get a more natural visual instead of the vertical bands in the scatterplot.  The boxplot wiskers also show the wide ranging rates for each credit score category.
+
+```{r Scatterplot Loan Amount and Rate, echo = FALSE, message = FALSE, warning = FALSE}
+# Scatterplot for LoanAmount and Rate
+scatter.loanamt.rate <- 
+  ggplot(pl, aes(x = LoanOriginalAmount, y = BorrowerRate)) + 
+  geom_point(alpha = 0.25, color = I('#099DD9'), position = position_jitter(h = 0)) +
+  ylim(0, 0.4) +
+  xlab("Loan Amount") + ylab("Borrower Rate")
+
+# Display plot
+scatter.loanamt.rate
+```
+
+There is a non-linear relationship between loan amount and rate.  As loan amount increases, the density and range of rates at the top end decreases.
+
+Summary data for Income Range:
+```{r Boxplot Income and Rate, echo = FALSE, message = FALSE, warning = FALSE}
+# Income range summary data
+pl.incomerange <- pl %>%
+  group_by(IncomeRange) %>%
+  dplyr::summarise(LoanAmtMean = mean(as.numeric(LoanOriginalAmount)),
+                   LoanAmtMedian = median(as.numeric(LoanOriginalAmount)),
+                   LoanAmtVolume = sum(as.numeric(LoanOriginalAmount)),
+                   LoanCnt = n()) %>%
+  arrange(IncomeRange)
+
+arrange(pl.incomerange, LoanAmtMedian)
+
+# Income range text for ordered axis
+income_ranges = c('Not displayed','$1-24,999','$25,000-49,999',
+                  '$50,000-74,999','$75,000-99,999','$100,000+')
+
+# Boxplot for IncomeRange and Rate
+box.incomerange.rate <- 
+  ggplot(pl, aes(x = IncomeRange, y = BorrowerRate)) + 
+  geom_boxplot(aes(fill = IncomeRange)) +
+  stat_summary(fun.y = mean, color = I("#CC3300"), geom = "point", size = 3) +
+  scale_x_discrete(limits = income_ranges) +
+  xlab("Income Range") + ylab("Borrower Rate") +
+  guides(fill = FALSE)
+
+# Display plot
+box.incomerange.rate
+```
+
+Median rate decreases slightly as income range increases.  Income level is unknown for Not displayed so unable to determine where it would truly fall in the range.  There does not appear to be a significant relationship between income level and rate.
+
+I'll take a look at the relationship of income and loan amount now.
+
+```{r Boxplot Income and Loan Amount, echo = FALSE, message = FALSE, warning = FALSE}
+# Boxplot for IncomeRange and LoanAmount
+box.incomerange.loanamt <- 
+  ggplot(pl, aes(x = IncomeRange, y = LoanOriginalAmount)) + 
+  geom_boxplot(aes(fill = IncomeRange)) +
+  stat_summary(fun.y = mean, color = I("#CC3300"), geom = "point", size = 3) +
+  scale_x_discrete(limits = income_ranges) +
+  scale_y_continuous(breaks = seq(0, 35000, 5000)) +
+  xlab("Income Range") + ylab("Loan Amount") +
+  guides(fill = FALSE)
+
+# Display plot
+box.incomerange.loanamt
+```
+
+Median loan amount increases as income range increases.  Excluded outliers $0 and Not employed from box plots.    Stated monthly income Median of 4667 and Mean of 5608.
+
+Next I will explore prosper rating and credit score and loan amount.
+
+```{r Boxplot Rating and Credit Score, echo = FALSE, message = FALSE, warning = FALSE}
+# Boxplot for ProsperRating and CreditScore
+box.prosperrating.creditscore <- 
+  ggplot(subset(pl, ProsperRating..numeric. != ""), 
+       aes(x = prosper_rating_display(ProsperRating..numeric., ProsperRating..Alpha.), 
+           y = CreditScoreRangeLower)) + 
+  geom_boxplot(aes(fill = factor(ProsperRating..numeric.))) +
+  stat_summary(fun.y = mean, color = I("#CC3300"), geom = "point", size = 3) +
+  ylim(600, 900) +
+  xlab("Prosper Rating") + ylab("Credit Score") +
+  guides(fill = FALSE)
+
+# Display plot
+box.prosperrating.creditscore
+```
+
+Median credit score is higher for the lowest 1 - HR credit rating than 2 - E.  This suggests some other credit factor could be the determining factor between these ratings.  Median credit score does increase as credit rating increases from credit rating 2 - E to 7 - AA.
+
+```{r Boxplot Rating and Loan Amount, echo = FALSE, message = FALSE, warning = FALSE}
+# Summary data for ProsperRating
+pl.prosperrating <- subset(pl, ProsperRating..numeric. != "") %>%
+  group_by(ProsperRating..numeric.) %>%
+  dplyr::summarise(LoanAmtMean = mean(as.numeric(LoanOriginalAmount)),
+                   LoanAmtMedian = median(as.numeric(LoanOriginalAmount)),
+                   LoanAmtMax = max(as.numeric(LoanOriginalAmount)),
+                   LoanAmtVolume = sum(as.numeric(LoanOriginalAmount)),
+                   LoanCnt = n()) %>%
+  arrange(ProsperRating..numeric.)
+
+pl.prosperrating
+
+# Boxplot for ProsperRating and LoanAmount
+box.prosperating.loanamt <- 
+  ggplot(subset(pl, ProsperRating..numeric. != ""), 
+       aes(x = prosper_rating_display(ProsperRating..numeric., ProsperRating..Alpha.), 
+           y = LoanOriginalAmount)) + 
+  geom_boxplot(aes(fill = factor(ProsperRating..numeric.))) +
+  stat_summary(fun.y = mean, color = I("#CC3300"), geom = "point", size = 3) +
+  scale_y_continuous(breaks = seq(0, 35000, 5000)) +
+  xlab("Prosper Rating") + ylab("Loan Amount") +
+  guides(fill = FALSE)
+
+# Display plot
+box.prosperating.loanamt
+```
+
+Similar to income range, median loan amount increases for higher credit rating.  The boxplot shows the maximum loan amounts by credit rating.  For credit ratings >= 5 max loan amount is 35,0000,  Credit rating = 4 max loan amount is 25,000 and <= 3 betwee 15,000 - 17,000.  Loan amount caps can minimize credit loss exposure in the event of default.  I'm really interested in exploring the benefits of loan amount limits based on the borrowers credit rating.
+
+## Bivariate Analysis
+
+**Talk about some of the relationships you observed in this part of the investigation. How did the feature(s) of interest vary with other features in the dataset?**
+
+Rate has a strong positive linear relationship with estimated loss and estimated return with a correlation coefficient of .95 and .82 respectively.  It has a strong negative linear relationship with prosper rating at -.95.  The relationship with the custom risk prosper score was not as strong as expected at -.65 and confirmed some suspicion about the distribution of this field in the univariate analysis section.  It was a little surprising the relationship with credit score was not as strong at -.51. 
+
+Loans with the highest stated monthly income have the highest median loan amount and lowest median rate.  This is consistent with expectations that people that make more money can afford larger loan payments.  Although the disparity in rates is not large it also shows the more money you make the better rate you will get.  Is this a product of making more money or better credit ratings?
+
+Loans with the highest credit rating have the highest median loan amount and lowest median rate.  What would be the driver for lower loan amounts for lower credit ratings?  The disparity in rates is much larger for credit rating.
+
+Loan amount has the strongest relationship with prosper rating at .43 and is the only field that had any significant relationship with the Term of the loan at .34.
+
+**Did you observe any interesting relationships between the other features (not the main feature(s) of interest)?**
+
+In the other features, I really was expecting stronger relationships with the selected credit reporting fields and credit score.  Card utilization was the strongest at -.44.  delinquency last 7 and public record last 10 were the next at -.22 for both.  This really moved my focus to the prosper rating field since it inherently represented the credit worthiness of the borrower.
+
+**What was the strongest relationship you found?**
+
+The strongest relationship was prosper rating and rate and estimated loss at -.95 and -.96 respectively.  Due to limitations in the dataset, I could not calculate actual loss rates so I focused on defaulted loans that had any amount of principal amount charged off.
+
+## Multivariate Plots
+
+I will now revisit the scaterplots in the Bivariate Plots section and add color by prosper rating.
+
+```{r Scatterplot Rate and Loss by Rating, echo = FALSE, message = FALSE, warning = FALSE}
+# Need to use a different dataset with ProsperRating so creating new plots
+# Scatterplot for Rate and Loss by ProsperRating
+scatter.rate.loss_prosperrating <- 
+  ggplot(subset(pl.2009, ProsperRating..numeric. != ""), 
+       aes(x = BorrowerRate, y = EstimatedLoss, 
+           color = prosper_rating_display(ProsperRating..numeric.,
+                                          ProsperRating..Alpha.))) + 
+  geom_point(alpha = .25, position = position_jitter(h = 0)) +
+  xlab("Borrower Rate") + ylab("Estimated Loss") +
+  guides(color = guide_legend(title = "Prosper Rating", override.aes = list(alpha = 1),
+                              reverse = TRUE)) 
+
+# Display plot
+scatter.rate.loss_prosperrating
+```
+
+The vertical bands are clearly associated with higher loss estimates for the worst HR credit rating.
+
+```{r Scatterplot Rate and Return by Rating, echo = FALSE, message = FALSE, warning = FALSE}
+# Scatterplot for Rate and Return by ProsperRating
+scatter.rate.return_prosperrating <- 
+  ggplot(subset(pl.2009, ProsperRating..numeric. != ""), 
+       aes(x = BorrowerRate, y = EstimatedReturn, 
+           color = prosper_rating_display(ProsperRating..numeric.,
+                                          ProsperRating..Alpha.))) + 
+  geom_point(alpha = .25, position = position_jitter(h = 0)) +
+  xlab("Borrower Rate") + ylab("Estimated Return") +
+  guides(color = guide_legend(title = "Prosper Rating", override.aes = list(alpha = 1),
+                              reverse = TRUE)) 
+
+# Display plot
+scatter.rate.return_prosperrating
+```
+
+Inverting the plot now for return estimates shows the same relationship.  The really interesting part about this plot is some HR credit rating loans have negative estimated returns.
+
+```{r Scatterplot Credit Score and Rate by Rating, echo = FALSE, message = FALSE, warning = FALSE}
+# Scatterplot for CreditScore and Rate by ProsperRating
+scatter.creditscore.rate_prosperrating <- 
+  ggplot(subset(pl.2009, ProsperRating..numeric. != ""), 
+      aes(x = CreditScoreRangeLower, y = BorrowerRate, 
+                    color = prosper_rating_display(ProsperRating..numeric.,
+                                                   ProsperRating..Alpha.))) + 
+  geom_point(alpha = 0.25, position = position_jitter(h = 0)) +
+  scale_x_continuous(breaks = seq(600, 900, 20)) +
+  xlab("Credit Score") + ylab("Borrower Rate") +
+  guides(color = guide_legend(title = "Prosper Rating", override.aes = list(alpha = 1),
+                              reverse = TRUE))
+
+# Display plot
+scatter.creditscore.rate_prosperrating
+```
+
+Adding prosper rating to the credit score and rate scatterplot really highlights the relationship of the credit rating system and interest rates across ranges of credit scores.
+
+```{r Scatterplot Loan Amount and Rate by Rating, echo = FALSE, message = FALSE, warning = FALSE}
+# Scatterplot for LoanAmount and Rate by ProsperRating
+scatter.loanamt.rate_prosperrating <- 
+  ggplot(subset(pl.2009, ProsperRating..numeric. != ""), 
+              aes(x = LoanOriginalAmount, y = BorrowerRate, 
+                    color = prosper_rating_display(ProsperRating..numeric.,
+                                                   ProsperRating..Alpha.))) + 
+  geom_point(alpha = 0.25, position = position_jitter(h = 0)) +
+  xlab("Loan Amount") + ylab("Borrower Rate") +
+  guides(color = guide_legend(title = "Prosper Rating", override.aes = list(alpha = 1),
+                              reverse = TRUE))
+
+# Display plot
+scatter.loanamt.rate_prosperrating
+```
+
+This plot is another visual that highlights at lower credit ratings loan amounts have maximum limits.  The plot shows only ratings >=5 have loan amounts up to the maximum of 35,000.  I'm interested in exploring this further in a predictive model to identify how loan amount limits for each credit rating can minimize the probability of loss.
+
+```{r Scatterplot Income and Rate by Rating, echo = FALSE, message = FALSE, warning = FALSE}
+# Scatterplot for MonthlyIncome and Rate by ProsperRating
+scatter.income.rate_prosperrating <- 
+  ggplot(subset(pl.2009, ProsperRating..numeric. != ""), 
+              aes(x = StatedMonthlyIncome, y = BorrowerRate, 
+                    color = prosper_rating_display(ProsperRating..numeric.,
+                                                   ProsperRating..Alpha.))) + 
+  geom_point(alpha = 0.25, position = position_jitter(h = 0)) +
+  scale_x_continuous(limits = c(0, quantile(pl.2009$StatedMonthlyIncome, .99))) +
+  xlab("Monthly Income") + ylab("Borrower Rate") +
+  guides(color = guide_legend(title = "Prosper Rating", override.aes = list(alpha = 1),
+                              reverse = TRUE))
+
+# Display plot
+scatter.income.rate_prosperrating
+```
+
+Rate and monthly income have a weak relationship but adding the credit rating tells the story about rates across similar income levels.
+
+I will now explore relationships with the calculated variable principal loss.  I have narrowed down my variables of interest to borrower rate, prosper rating and loan amount.
+
+```{r Bar Chart Rating by Principal Loss, echo = FALSE, message = FALSE, warning = FALSE}
+# Only include closed loans for PrincipalLoss analysis
+pl.2009.closed <- subset(pl, pl$LoanOriginationYear >= 2009 & 
+                           pl$LoanStatusBucket == "Closed")
+
+# Bar Chart for ProsperRating by PrincipalLoss
+bar.prosperrating_prinloss <-
+  ggplot(subset(pl.2009.closed, ProsperRating..numeric. != ""), 
+       aes(x = prosper_rating_display(ProsperRating..numeric., ProsperRating..Alpha.), 
+           fill = factor(PrincipalLoss))) +
+  geom_bar(position = "dodge") +
+  xlab("Prosper Rating") + ylab("Count") +
+  guides(fill = guide_legend(title = 'Principal Loss'))
+
+# Display plot
+bar.prosperrating_prinloss
+```
+
+Prosper rating histogram by loans with a principal loss.  Filtered for all loans originated >= 2009 and closed.  Including loans that are still open would skew the analysis.
+
+```{r Histogram Rate Density by Rating, echo = FALSE}
+# Histogram for BorrowerRate Density by ProsperRating
+hist.rate_prosperrating <-
+  ggplot(subset(pl.2009, ProsperRating..numeric. != ""), 
+       aes(x = BorrowerRate, y = ..density..,
+           fill = prosper_rating_display(ProsperRating..numeric.,
+                                         ProsperRating..Alpha.))) +
+  geom_bar(stat = "bin", binwidth = 0.01) +
+  scale_x_continuous(breaks = seq(0, 0.4, .05)) +
+  xlab("Borrower Rate") + ylab("Density") +
+  guides(fill = guide_legend(title = "Prosper Rating", reverse = TRUE))
+
+# Display plot
+hist.rate_prosperrating
+```
+
+The rate spike at .31 is predominantly HR credit rating loans.
+
+```{r Density Plot Rate by Principal Loss, echo = FALSE, message = FALSE, warning = FALSE}
+# Density Plot for BorrowerRate by PrincipalLoss
+dens.rate_prinloss <- 
+  ggplot(subset(pl.2009.closed, ProsperRating..numeric. != "") , 
+               aes(x = BorrowerRate, color = factor(PrincipalLoss))) +
+  geom_density() +
+  scale_x_continuous(breaks = seq(0, .4, .05)) +
+  scale_color_manual(values = c(I('#008B8B'), I('#DC143C'))) +
+  xlab("Borrower Rate") + ylab("Density") +
+  guides(color = guide_legend(title = 'Principal Loss'))
+
+# Display plot
+dens.rate_prinloss
+```
+
+The density of loans with a principal loss is much higher with rates >= .225.
+
+```{r Density Plot Rate by Principal Loss and Rating, echo = FALSE, message = FALSE, warning = FALSE}
+# Density Plot for BorrowerRate by PrincipalLoss and ProsperRating
+dens.rate_prinloss_prosperrating <- 
+  dens.rate_prinloss + 
+  geom_density(aes(fill = prosper_rating_display(ProsperRating..numeric.,
+                                                 ProsperRating..Alpha.))) +
+  guides(fill = guide_legend(title = 'Prosper Rating', reverse = TRUE))
+
+# Display plot
+dens.rate_prinloss_prosperrating
+```
+
+Added fill for prosper rating to the density plot for borrower rate and principal loss.  This plot is a great visual to show the relationship ofrating and rate.  The density curves are distinct along the axis for each rating.  It is interesting to see the spike for no principal loss loans at .35 but a significant spike for 1 - HR credit rating at .31.
+
+```{r Histogram Loan Amount Density by Rating, echo = FALSE}
+# Histogram for LoanOriginalAmount by Prosper Rating
+hist.loanamt_prosperrating <-
+  ggplot(subset(pl.2009, ProsperRating..numeric. != ""), 
+       aes(x = LoanOriginalAmount, y = ..density..,
+           fill = prosper_rating_display(ProsperRating..numeric.,
+                                         ProsperRating..Alpha.))) +
+  geom_bar(stat = "bin", binwidth = 2500) +
+  scale_x_continuous(breaks = seq(0, 35000, 5000)) +
+  xlab("Loan Original Amount") + ylab("Density") +
+  guides(fill = guide_legend(title = "Prosper Rating", reverse = TRUE))
+
+# Display plot
+hist.loanamt_prosperrating
+```
+
+Loans with lower credit ratings 1 - 3 have a higher distribution in the loan amount <= 5000 bins.
+
+```{r Density Plot Loan Amount by Principal Loss, echo = FALSE, message = FALSE, warning = FALSE}
+# Density Plot for LoanOriginalAmount by PrincipalLoss
+dens.loanamt_prinloss <- 
+  ggplot(subset(pl.2009.closed, ProsperRating..numeric. != ""), 
+         aes(x = LoanOriginalAmount, color = factor(PrincipalLoss))) +
+  geom_density() +
+  scale_x_continuous(breaks = seq(0, 35000, 5000)) +
+  scale_color_manual(values = c(I('#008B8B'), I('#DC143C'))) +
+  xlab("Loan Amount") + ylab("Density") +
+  guides(color = guide_legend(title = 'Principal Loss'))
+
+# Display plot
+dens.loanamt_prinloss
+```
+
+The density of loans with a principal loss is much higher with loan amounts between 2500 - 5000 and then follows a very similar curve as loan amount approaches 35000.
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+# Density Plot for LoanOriginalAmount by PrincipalLoss and ProsperRating
+dens.loanamt_prinloss_prosperrating <- 
+  dens.loanamt_prinloss +
+  geom_density(aes(fill = prosper_rating_display(ProsperRating..numeric.,
+                                                 ProsperRating..Alpha.))) +
+  guides(fill = guide_legend(title = 'Prosper Rating', reverse = TRUE))
+
+# Display plot
+dens.loanamt_prinloss_prosperrating
+```
+
+Added fill for prosper rating to the density plot for loan amount and principal loss.  The spike around 5K for 1 - HR credit rating loans with a principal loss really stands out in this plot.
+
+```{r Logistic , echo = FALSE, cache = TRUE, message = FALSE, warning = FALSE}
+# Factor variables
+pl.2009.closed$PrincipalLoss <- factor(pl.2009.closed$PrincipalLoss)
+pl.2009.closed$ProsperRating..numeric. <- factor(pl.2009.closed$ProsperRating..numeric.)
+
+# Set seed so can be reproduced
+set.seed(100)
+# Select a sample
+# myData <- pl.2009.closed[sample(1:length(pl.2009.closed$ProsperRating..numeric.), 500), ]
+myData <- pl.2009.closed
+
+# Fit model
+mylogit <- glm(PrincipalLoss ~  ProsperRating..numeric. + LoanOriginalAmount,
+               data = myData, family = "binomial")
+
+# Model summary
+summary(mylogit)
+
+#confint(mylogit)
+#wald.test(b = coef(mylogit), Sigma = vcov(mylogit), Terms = 2:7)
+#v <- cbind(1, -1, 0, 0, 0, 0, 0, 0)
+#wald.test(b = coef(mylogit), Sigma = vcov(mylogit), L = v)
+
+# Odds ratios
+exp(cbind(OR = coef(mylogit), confint(mylogit)))
+
+# New data frame with median Loan Amount for each of the 7 ratings
+newdata1 <- with(myData, data.frame(LoanOriginalAmount = median(LoanOriginalAmount), 
+                                    ProsperRating..numeric. = factor(1:7)))
+
+# New data frame with Loan Amounts ranging from 1000 to 35000 for each of the 7 ratings
+newdata2 <- with(myData, data.frame(LoanOriginalAmount = rep(seq(from = 1000, to = 35000, 
+                                                       length.out = 35), 7),
+                          ProsperRating..numeric. = factor(rep(1:7, each = 35))))
+
+# Prediction for data 1
+newdata1$Pred <- predict(mylogit, newdata = newdata1, type = "response")
+newdata1
+
+# Prediction for data 2
+newdata3 <- cbind(newdata2, predict(mylogit, newdata = newdata2, type = "link", se = TRUE))
+# Add standard errors
+newdata3 <- within(newdata3, {PredictedProb <- plogis(fit) 
+LL <- plogis(fit - (1.96 * se.fit))
+UL <- plogis(fit + (1.96 * se.fit))
+})
+#head(newdata3)
+
+# Plot predictied probabilities and 95% confidence intervals
+line.loanamt.pred_prosperrating <- 
+  ggplot(newdata3, aes(x = LoanOriginalAmount, y = PredictedProb)) + 
+  geom_ribbon(aes(ymin = LL, ymax = UL, fill = ProsperRating..numeric.), alpha = 0.2) + 
+  geom_line(aes(color = ProsperRating..numeric.), size = 1) +
+  scale_x_continuous(breaks = seq(0, 35000, 5000)) +
+  scale_y_continuous(breaks = seq(0, 0.8, 0.1)) +
+  xlab("Loan Amount") + ylab("Predicted Probability") +
+  guides(color = guide_legend(title = "Prosper Rating", reverse = TRUE)) +
+  guides(fill = guide_legend(title = "Prosper Rating", reverse = TRUE))
+
+# Display plot
+line.loanamt.pred_prosperrating
+```
+
+The line plot with the confidence interval ribbon shows how the predicted probability for loss increases as loan amount increases and credit rating decreases.  In addition the confidence interval gets wider.
+
+See the multivariate and final plots section for additional comments on this model.
+
+## Multivariate Analysis
+
+**Talk about some of the relationships you observed in this part of the investigation. Were there features that strengthened each other in terms of looking at your feature(s) of interest?**
+
+I first expanded the scatterplots from the bivariate section to include prosper rating.  estimated loss and estimated return had a clear correlation with credit rating.  As credit rating decreases, estimated loss increases and return decreases due to their direct relationship (return is the difference between effective yield and loss).  In the rate and loan amount by prosper rating scatterplot, all credit rating levels have loan amounts between 0 and 10000 but the lower the credit rating the higher the rate.  Only the top 4 credit ratings have loan amounts >= 25000.
+
+For the calculated column principal loss, the strongest relationship was with rate, estimated loss, estimated return, prosper rating and loan amount.  The density plot for rate and principal loss shows a higher density for rates >= .225.  I added a fill by credit rating and this really popped with the curves higher for no principal loss and credit rating 5 - 7 and spikes significantly at a rate of .31 for credit rating 1.
+
+**Were there any interesting or surprising interactions between features?**
+
+Credit score and credit rating relationship was interesting in that I expected a more distinct line between rating and the credit score ranges.  Although median credit scores are higher for higher credit ratings, the scatterplot showed a lot of overlap in scores across ratings.
+
+Income amount was really all over the place with no clear relationship but there is the appearance of a higher representation of higher income amounts for higher credit ratings.
+
+**OPTIONAL: Did you create any models with your dataset? Discuss the strengths and limitations of your model.**
+
+I created a logistic regression model for principal loss as the dependent variable and independent variables prosper Rating and loan amount.  I did not include borrower rate as well since it has such strong negative linear relationship with prosper rating.
+
+I initially used a random sample of 500 loans to get a better sense of the true p values for the variables.  The first dataset that I ran through the model was for the median loan amount of 4500 for all 7 credit ratings.  The probability of a loan defaulting and any amount of principal being charged off is 38.38% and 3.61% for credit ratings 1 - HR and 7 - AA respectively.
+
+The second dataset was simulated for loan amounts from 1000 to 35000 to build a 95% confidence interval plot for the predicted probabilities.
+
+## Final Plots and Summary
+
+**Plot 1**
+
+```{r Final plot 1, echo = FALSE, message = FALSE, warning = FALSE}
+box.prosperating.loanamt + ggtitle("Box Plot for Prosper Rating and Loan Amount")
+```
+
+**Description 1**
+
+This boxplot provides the best visual for median loan amounts for each credit rating and the whiskers of the boxplots show the maximum loan amounts.
+
+**Plot 2**
+
+```{r Final plot 2, echo = FALSE, message = FALSE, warning = FALSE}
+# Final plot 2
+# Move legend to bottom for arranged grid and remove x-axis label
+finalplot.2a <- scatter.rate.loss_prosperrating + 
+  theme(legend.position = "bottom") + xlab(NULL)
+#finalplot.2a
+
+# Extract legend to be placed at bottom of grid for both plots
+finalplotleg.2 <- get_legend(finalplot.2a)
+
+# Now remove the legend from a
+finalplot.2a <- finalplot.2a + theme(legend.position = "none")
+
+# Remove legend from plot 2
+finalplot.2b <- scatter.rate.return_prosperrating 
+
+# Remove legend from b
+finalplot.2b <- finalplot.2b + theme(legend.position = "none")
+
+# Arrange new plots in a grid
+grid.arrange(finalplot.2a, finalplot.2b, finalplotleg.2, 
+             ncol = 1, heights = c(4.0, 4.0, 0.8),
+             top = "Scatter Plots for Estimated Loss/Return and Rate by Prosper Rating")
+```
+
+**Description 2**
+
+Initially I planned on calculating actual return and loss rates but due to the absence of daily average balance data you really cannot calculate actual rates.  You can calculate simple rates based on the Interest and Fees and Non-Principal Recovery Payments variables and Loan Amount.  However, I decided to focus my analysis on the derived binary variable for Principal Loss.  These plots provide a great visual of the linear relationship between Borrower Rate and Estimated Loss/Return with the outliers for the 1 - HR credit rating.
+
+I did some customization of the final plot to arrange the plots together with only 1 x axis label and legend guide positioned at the bottom.
+
+**Plot 3**
+
+```{r Final plot 3, echo = FALSE, message = FALSE, warning = FALSE}
+line.loanamt.pred_prosperrating + ggtitle("Prediction Probability Line Plot for Loan Amount and Prosper Rating")
+```
+
+**Description 3**
+
+The line plot with the prediction probability confidence interval ribbon for the logistic regression model was the culmination of my analysis. This model could be the basis for establishing loan amount limits for each credit rating.  From an investor perspective, listings could be run through the model to identify the probability of loss of principal to diversify a portfolio of peer to peer loan investments.
+
+## Reflection
+
+The Prosper loan dataset is pretty large with 113,937 loans with 88 variables ranging in loan originations from 2005 - 2014.  Based on the number of variables my first step was to review the variable definitions and header data to reduce the columns down to a more manageable list.  I then discovered the gap in data between November 2008 - June 2009 due to the SEC shutdown.  This was an important observation since it was critical for my subsequent data subsets since the credit rating system changed after they reopened in 2009.  Once I explored the estimated loss and return variables my immediate thought was to calculate actual loss and return rates for closed loans.  However, I decided not to go down that path since the dataset only had original loan amount and lacked time series daily average loan balance data.  I then focused my attention on exploring the variables that had the strongest relationship to rate and loan amount and ultimately which loans defaulted and had any amount of principal charged off.  I eliminated fields such as term, monthly income and employment duration since they did not have strong relationships with my features of interest.  I really honed in on the prosper credit rating in the bivariate section based on the output of each correlation matrix.  At that point, I really established my direction and brought it all together in the multivariate section and creation of the predictive model.
+
+Initially I was not creating values for each plot and during the course of my analysis I struggled a little keeping everything straight on what plots I had already created.  By using a specific naming convention this really helped keep my project organized and I could review what values I had in the environment already.
+
+My plan is to continue on with this analysis but on Prospers main competitor Lending Club to see if there is any measurable performance differences between the two peer to peer lenders.
