@@ -18,3 +18,5 @@ data-visualization/project/files
 data-visualization/project/misc
 **.zip
 **.doc*
+**phx.json
+**phx.osm
